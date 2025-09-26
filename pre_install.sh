@@ -138,4 +138,4 @@ systemctl enable iwd   # optional, only if you plan to use Wi-Fi
 
 EOF  # end of arch-chroot
 
-log "Pre-install complete. Now reboot into chroot and run post-install."
+log "Pre-install complete. Now switch to chroot and run post-install."
