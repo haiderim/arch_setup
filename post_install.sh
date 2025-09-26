@@ -1,85 +1,199 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-log() { echo "[post-install] $*"; }
+log(){ echo "[post-install] $*"; }
 
-# --- dependencies ---
-if ! command -v sbsign >/dev/null 2>&1; then
-  pacman -Sy --noconfirm --needed sbsigntools
+# --- Config you can override via env -----------------------------------------
+# Primary interactive user (AUR builds run as this user; no sudo prompts).
+USER_NAME="${USER_NAME:-$(awk -F: '$3>=1000 && $1!="nobody"{print $1; exit}' /etc/passwd)}"
+MOK_DIR="${MOK_DIR:-/root/secureboot}"
+ESP_MOUNT="${ESP_MOUNT:-/boot}"
+
+# --- Preflight ---------------------------------------------------------------
+if ! mountpoint -q "$ESP_MOUNT"; then
+  echo "ERROR: $ESP_MOUNT is not mounted. Mount your ESP and re-run." >&2
+  exit 1
 fi
-if ! command -v efibootmgr >/dev/null 2>&1; then
-  pacman -Sy --noconfirm --needed efibootmgr
+
+if [[ $EUID -ne 0 ]]; then
+  echo "ERROR: Run as root." >&2
+  exit 1
 fi
 
-# --- secureboot signing tool ---
-install -Dm0755 /dev/stdin /usr/local/bin/secureboot-sign <<'EOF'
-#!/bin/bash
-set -euo pipefail
-KEY="/root/secureboot/MOK.key"
-CERT="/root/secureboot/MOK.crt"
-BOOT="/boot"
-SBSIGN="/usr/bin/sbsign"
+command -v efibootmgr >/dev/null || pacman -Sy --noconfirm efibootmgr
+pacman -Sy --noconfirm --needed base-devel git sbsigntools openssl
 
-sign_inplace() {
+# --- Tighten /boot permissions + fstab (fix random-seed warnings) -----------
+# 1) Mountpoint perms
+chmod 700 "$ESP_MOUNT" || true
+mkdir -p "$ESP_MOUNT/loader"
+chmod 700 "$ESP_MOUNT/loader" || true
+install -m 600 /dev/null "$ESP_MOUNT/loader/random-seed" 2>/dev/null || true
+chmod 600 "$ESP_MOUNT/loader/random-seed" || true
+
+# 2) Ensure VFAT mounts as 0700 (umask=0077). Update fstab safely.
+ESP_DEV="$(findmnt -no SOURCE "$ESP_MOUNT")"                  # e.g. /dev/sda1 or /dev/nvme0n1p1
+ESP_UUID="$(blkid -s UUID -o value "$ESP_DEV" || true)"
+if [[ -n "$ESP_UUID" ]]; then
+  cp /etc/fstab "/etc/fstab.$(date +%Y%m%d-%H%M%S).bak"
+  # comment any existing /boot line, then append strict one
+  sed -i 's@^\(.*[[:space:]]/boot[[:space:]].*\)$@# \1@g' /etc/fstab
+  grep -q "UUID=$ESP_UUID[[:space:]]\+/boot" /etc/fstab || \
+    echo "UUID=$ESP_UUID  /boot  vfat  umask=0077,shortname=mixed  0  2" >> /etc/fstab
+  mount -o remount "$ESP_MOUNT" || true
+fi
+# (Refs: bootctl warns if /boot or /boot/loader/random-seed are world-readable; set 0700/0600)  # :contentReference[oaicite:5]{index=5}
+
+# --- Make sure systemd-boot is installed/updated -----------------------------
+bootctl --graceful install || true
+bootctl --graceful update  || true
+
+# --- Create MOK (RSA-2048) + export DER for MokManager -----------------------
+mkdir -p "$MOK_DIR"
+if [[ ! -s "$MOK_DIR/MOK.key" || ! -s "$MOK_DIR/MOK.crt" ]]; then
+  openssl req -new -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+    -subj "/CN=Arch SecureBoot MOK/" \
+    -keyout "$MOK_DIR/MOK.key" -out "$MOK_DIR/MOK.crt"
+fi
+# DER (.cer) for MokManager
+openssl x509 -in "$MOK_DIR/MOK.crt" -outform DER -out "$MOK_DIR/MOK.cer"
+
+install -d -m 755 "$ESP_MOUNT/EFI/arch/keys"
+install -m 644 "$MOK_DIR/MOK.cer" "$ESP_MOUNT/EFI/arch/keys/MOK.cer"
+
+# --- Install shim-signed from AUR (build as user, install as root) ----------
+if [[ ! -f /usr/share/shim-signed/shimx64.efi ]]; then
+  su - "$USER_NAME" -c '
+    set -e
+    rm -rf ~/shim-signed
+    git clone https://aur.archlinux.org/shim-signed.git ~/shim-signed
+    cd ~/shim-signed
+    # All deps are already present via base-devel; avoid sudo by not using -s/-i
+    makepkg -f --noconfirm
+  '
+  pacman -U --noconfirm "/home/$USER_NAME/shim-signed/"*.pkg.tar.*
+fi
+
+# Paths provided by shim-signed AUR package:                                  # 
+SHIM_SRC="/usr/share/shim-signed"
+
+# Copy shim + MokManager (vendor fallback too)
+install -d -m 755 "$ESP_MOUNT/EFI/arch" "$ESP_MOUNT/EFI/BOOT"
+install -m 644 "$SHIM_SRC/shimx64.efi" "$ESP_MOUNT/EFI/arch/shimx64.efi"
+install -m 644 "$SHIM_SRC/mmx64.efi"   "$ESP_MOUNT/EFI/arch/MokManager.efi"
+install -m 644 "$SHIM_SRC/shimx64.efi" "$ESP_MOUNT/EFI/BOOT/BOOTX64.EFI"
+
+# --- Sign systemd-boot and place where shim looks next -----------------------
+# Per ArchWiki, shim by default looks for and launches grubx64.efi.           # :contentReference[oaicite:7]{index=7}
+if [[ -f "$ESP_MOUNT/EFI/systemd/systemd-bootx64.efi" ]]; then
+  sbsign --key "$MOK_DIR/MOK.key" --cert "$MOK_DIR/MOK.crt" \
+    --output "$ESP_MOUNT/EFI/arch/grubx64.efi" \
+    "$ESP_MOUNT/EFI/systemd/systemd-bootx64.efi"
+  # Fallback copy
+  install -m 644 "$ESP_MOUNT/EFI/arch/grubx64.efi" "$ESP_MOUNT/EFI/BOOT/grubx64.efi"
+else
+  echo "WARN: $ESP_MOUNT/EFI/systemd/systemd-bootx64.efi not found; did bootctl install succeed?" >&2
+fi
+
+# --- Sign kernels (only EFI/PE binaries; NOT initramfs/microcode) -----------
+sign_in_place() {  # sbsign to temp then replace
   local f="$1"
   [[ -f "$f" ]] || return 0
+  log "Signing $f"
   local tmp="${f}.signed"
-  echo "[sign] $f"
-  "$SBSIGN" --key "$KEY" --cert "$CERT" --output "$tmp" "$f"
-  mv -f "$f" "${f}.unsigned" 2>/dev/null || true
+  sbsign --key "$MOK_DIR/MOK.key" --cert "$MOK_DIR/MOK.crt" --output "$tmp" "$f"
   mv -f "$tmp" "$f"
 }
 
-# sign systemd-boot, install alongside shim
-if [[ -f "$BOOT/EFI/systemd/systemd-bootx64.efi" ]]; then
-  sign_inplace "$BOOT/EFI/systemd/systemd-bootx64.efi"
-  install -Dm0644 "$BOOT/EFI/systemd/systemd-bootx64.efi" "$BOOT/EFI/arch/grubx64.efi"
-  mkdir -p "$BOOT/EFI/BOOT"
-  cp -f "$BOOT/EFI/arch/shimx64.efi" "$BOOT/EFI/BOOT/BOOTX64.EFI" || true
-  cp -f "$BOOT/EFI/arch/grubx64.efi" "$BOOT/EFI/BOOT/grubx64.efi" || true
-fi
-
-# sign kernels, initramfs, microcode
-for f in "$BOOT"/vmlinuz-* "$BOOT"/initramfs-*.img "$BOOT"/*-ucode.img; do
-  [[ -f "$f" ]] && sign_inplace "$f"
+for k in "$ESP_MOUNT"/vmlinuz-*; do
+  [[ -f "$k" ]] && sign_in_place "$k"
 done
+# (Do not sign initramfs or *-ucode.img unless using UKI)                      # :contentReference[oaicite:8]{index=8}
 
-# copy cert to ESP for MokManager enrollment
-mkdir -p "$BOOT/EFI/arch/keys"
-cp -f "$CERT" "$BOOT/EFI/arch/keys/MOK.crt" || true
-EOF
+# --- Create/refresh UEFI NVRAM entry to shim --------------------------------
+ESP_DISK="/dev/$(lsblk -no pkname "$ESP_DEV")"
+ESP_PARTNUM="$(cat "/sys/class/block/$(basename "$ESP_DEV")/partition")"
 
-# --- pacman hook ---
-install -Dm0644 /dev/stdin /etc/pacman.d/hooks/95-secureboot-sign.hook <<'EOF'
-[Trigger]
-Operation = Install
-Operation = Upgrade
-Type = Path
-Target = boot/vmlinuz*
-Target = boot/initramfs-*.img
-Target = boot/*-ucode.img
-Target = EFI/systemd/systemd-bootx64.efi
-
-[Action]
-Description = Re-sign kernels/initramfs/microcode and systemd-boot for Secure Boot (MOK)
-When = PostTransaction
-Exec = /usr/local/bin/secureboot-sign
-EOF
-
-# --- fix fstab ESP perms ---
-ESP_UUID=$(blkid -s UUID -o value "$(findmnt -no SOURCE /boot)")
-grep -q "$ESP_UUID" /etc/fstab && \
-  sed -i "s|$ESP_UUID.*vfat.*|$ESP_UUID  /boot  vfat  umask=0077,shortname=mixed,utf8,errors=remount-ro  0  2|" /etc/fstab
-
-# --- ensure boot entry exists ---
-ESP_SRC="$(findmnt -no SOURCE /boot)"
-ROOT_DISK="$(lsblk -no pkname "$ESP_SRC")"
-ESP_PART_NUM="$(sed -E 's/.*[^0-9]([0-9]+)$/\1/' <<<"$ESP_SRC")"
-
-efibootmgr -c -d "/dev/$ROOT_DISK" -p "$ESP_PART_NUM" \
+efibootmgr -c -d "$ESP_DISK" -p "$ESP_PARTNUM" \
   -L "Arch (SecureBoot)" \
   -l '\EFI\arch\shimx64.efi' || true
 
 efibootmgr -v || true
 
-log "Post-install completed."
+# --- Pacman hooks to keep things signed on updates --------------------------
+install -d -m 755 /usr/local/bin /etc/pacman.d/hooks
+
+cat >/usr/local/bin/secureboot-sign <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+KEY="/root/secureboot/MOK.key"
+CRT="/root/secureboot/MOK.crt"
+ESP="/boot"
+
+sign_file() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  echo "[secureboot-sign] $f"
+  sbsign --key "$KEY" --cert "$CRT" --output "${f}.signed" "$f"
+  mv -f "${f}.signed" "$f"
+}
+
+# Recopy & sign systemd-boot → grubx64.efi
+if [[ -f "$ESP/EFI/systemd/systemd-bootx64.efi" ]]; then
+  sign_file "$ESP/EFI/systemd/systemd-bootx64.efi"
+  cp -f "$ESP/EFI/systemd/systemd-bootx64.efi" "$ESP/EFI/arch/grubx64.efi"
+  cp -f "$ESP/EFI/arch/grubx64.efi" "$ESP/EFI/BOOT/grubx64.efi"
+fi
+
+# Kernels (only)
+for k in "$ESP"/vmlinuz-*; do
+  [[ -f "$k" ]] && sign_file "$k"
+done
+EOS
+chmod +x /usr/local/bin/secureboot-sign
+
+# Run after kernel installs/upgrades and after systemd (bootctl update)        # :contentReference[oaicite:9]{index=9}
+cat >/etc/pacman.d/hooks/90-bootctl-update.hook <<'EOS'
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = systemd
+
+[Action]
+Description = Updating systemd-boot on ESP...
+When = PostTransaction
+Exec = /usr/bin/bootctl update
+EOS
+
+cat >/etc/pacman.d/hooks/95-secureboot-sign.hook <<'EOS'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = boot/vmlinuz*
+# Also re-sign after systemd updates (bootloader changed by bootctl)
+Type = Package
+Target = systemd
+
+[Action]
+Description = Re-signing kernel(s) and systemd-boot for Secure Boot...
+When = PostTransaction
+Exec = /usr/local/bin/secureboot-sign
+EOS
+
+# --- Final hints -------------------------------------------------------------
+cat <<'EONEXT'
+
+[OK] Secure Boot pieces are staged.
+
+NEXT BOOT (one-time):
+  1) From the firmware menu, boot "Arch (SecureBoot)".
+  2) Shim will launch MokManager the first time:
+       → "Enroll key from disk"
+       → Navigate to \EFI\arch\keys\MOK.cer
+       → Enroll, then reboot.
+  3) You should now land in systemd-boot, then Arch. No hash enrollment needed.
+
+Changes on kernel/systemd updates will be auto-signed by pacman hooks.
+
+EONEXT
