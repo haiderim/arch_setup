@@ -1,80 +1,251 @@
 # Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
 
-This repository contains **automated scripts and documentation** to set up a modern, reproducible Arch Linux system from scratch, with full-disk encryption, BTRFS subvolumes, snapshotting, ZRAM, and Secure Boot — all in one go.
+Automated scripts to install **Arch Linux** with:
 
-## Features
+* **Btrfs on LUKS** (full-disk encryption, clean subvol layout)
+* **systemd-boot** (fast) but chainloaded via **shim** for **Secure Boot**
+* Your own **MOK (RSA-2048)**; kernels + `systemd-boot` auto-signed on updates
+* **Snapper** + `snap-pac` preinstalled (ready for config)
+* **zram-generator** preinstalled (ready for config)
 
-* **BTRFS on LUKS**
+> These scripts are designed for machines where Secure Boot is **enabled** and you **cannot** put firmware in “Setup Mode”. We use **shim + MokManager** so you only enroll your **certificate once**—no more hash enrollment per kernel.
 
-  * Full-disk encryption (LUKS2).
-  * Clean subvolume layout: `@`, `@home`, `@.snapshots`, `@srv`, `@var_log`, `@var_pkgs`.
-  * Transparent compression (`zstd`).
+---
 
-* **Snapper integration**
+## What the scripts do
 
-  * Automatic snapshots triggered by `pacman`, `yay`, and `paru`.
-  * `@.snapshots` subvolume pre-configured for rollback.
+* **`pre-install.sh`** (run from Arch ISO):
 
-* **ZRAM swap**
+  * Formats ESP, sets up **LUKS2** and **Btrfs** with subvolumes:
 
-  * Managed by `zram-generator`.
-  * No need for a swap partition or file.
+    * `@`, `@home`, `@.snapshots`, `@srv`, `@var_log`, `@var_pkgs`
+  * Mounts everything, installs base system (`linux` + `linux-lts`), generates initramfs
+  * Installs + seeds **systemd-boot** and **loader entries** (Arch + LTS, + fallbacks)
+  * Creates **root** and **user**, enables sudo for the `wheel` group
 
-* **Secure Boot from day one**
+* **`post-install.sh`** (run inside the freshly installed Arch after first boot):
 
-  * Your **own custom Machine Owner Keys (MOKs)**, not Microsoft’s.
-  * Uses [shim](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot#Shim) + [systemd-boot](https://wiki.archlinux.org/title/Systemd-boot).
-  * Automatically signs `systemd-boot` and kernels via pacman hooks.
-  * MokManager used once to enroll your key (`MOK.cer`).
+  * Fixes `/boot` + random-seed permissions and tightens ESP mount options
+  * Generates **MOK (RSA-2048)**, exports `MOK.cer` to the ESP
+  * Builds & installs **`shim-signed` (AUR)** as your user; root installs the package
+  * Signs **systemd-boot** (as `grubx64.efi` for shim) and **kernels**
+  * Adds an NVRAM boot entry **“Arch (SecureBoot)”** pointing to `\EFI\arch\shimx64.efi`
+  * Installs **pacman hooks** to re-sign on kernel/systemd updates
 
-* **systemd-boot**
+---
 
-  * Lightweight bootloader.
-  * Fallback entries and loader configs pre-generated.
-  * No GRUB required.
+## Prerequisites (from the Arch ISO)
 
-## Scripts
+1. **UEFI boot** the official Arch ISO.
+2. **Networking** (pick one):
 
-* `pre-install.sh`
-  Run from the **live Arch ISO** after partitioning. Handles:
+   * Ethernet: usually plug-and-play.
+   * Wi-Fi (iwd):
 
-  * Formatting ESP and LUKS setup.
-  * BTRFS + subvolume creation.
-  * Mounting subvolumes + ESP.
-  * Bootstrapping Arch (`pacstrap`).
-  * Generating fstab, locale, users, sudoers.
-  * Installing and configuring systemd-boot with multiple entries (main + fallback, LTS + fallback).
+     ```bash
+     iwctl
+     # within iwctl:
+     device list
+     station <wlan> scan
+     station <wlan> get-networks
+     station <wlan> connect "<SSID>"
+     quit
+     ```
+3. **Time sync**:
 
-* `post-install.sh`
-  Run **inside the freshly installed system after first boot**. Handles:
+   ```bash
+   timedatectl set-ntp true
+   ```
 
-  * Fixing `/boot` and `/boot/loader/random-seed` permissions.
-  * Generating + enrolling your Secure Boot keys (RSA 2048 MOK).
-  * Installing `shim-signed` from AUR.
-  * Signing `systemd-boot` (renamed to `grubx64.efi` for shim) and kernels.
-  * Creating pacman hooks to auto-re-sign on kernel/systemd updates.
-  * Setting up EFI boot entries with `efibootmgr`.
+---
 
-## Workflow
+## Partition the disk (one-liner example)
 
-1. **Boot Arch ISO** and partition your disk (ESP + LUKS root).
-2. Run `pre-install.sh` → this installs Arch with BTRFS + systemd-boot.
-3. Reboot into your new Arch install.
-4. Run `post-install.sh` → this enables Secure Boot and auto-signing.
-5. Reboot again → enroll your key (`MOK.cer`) with MokManager once.
+> ⚠️ Destroys all data on the target disk.
 
-From now on, kernel/systemd updates are signed automatically — no manual intervention needed.
+* For **SATA/NVMe**, adjust device names: e.g. `/dev/sda` vs `/dev/nvme0n1` (its partitions are `/dev/nvme0n1p1`, `/dev/nvme0n1p2`).
 
-## Requirements
+```bash
+DISK=/dev/sda    # or /dev/nvme0n1
 
-* UEFI firmware with Secure Boot enabled.
-* ESP (FAT32) + encrypted root partition.
-* Internet access during installation.
-* Firmware **not in “Setup Mode”** (works fine with MokManager method).
+sgdisk --zap-all "$DISK"
+sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI System" "$DISK"
+sgdisk -n 2:0:0   -t 2:8300 -c 2:"Linux LUKS" "$DISK"
+partprobe "$DISK"
+```
 
-## References
+You’ll now have:
 
-* [Arch Wiki: Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot)
-* [Arch Wiki: systemd-boot](https://wiki.archlinux.org/title/Systemd-boot)
-* [Arch Wiki: Snapper](https://wiki.archlinux.org/title/Snapper)
-* [Arch Wiki: Zram-generator](https://wiki.archlinux.org/title/Zram-generator)
+* **ESP** → `${DISK}1` (e.g. `/dev/sda1`, `/dev/nvme0n1p1`)
+* **LUKS root** → `${DISK}2` (e.g. `/dev/sda2`, `/dev/nvme0n1p2`)
+
+---
+
+## Get the scripts
+
+```bash
+# From the ISO shell:
+pacman -Sy --noconfirm git
+git clone https://github.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot.git
+cd Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+chmod +x pre-install.sh post-install.sh
+```
+
+---
+
+## Run **pre-install.sh** (from the ISO)
+
+Set your values and run in **one** command:
+
+```bash
+DISK=/dev/sda \
+HOSTNAME=x280-arch-01 \
+USERNAME=ihaider \
+ROOT_PASS='your-root-password' \
+USER_PASS='your-user-password' \
+./pre-install.sh
+```
+
+That script will:
+
+* LUKS-format `${DISK}2`, create/mount Btrfs subvolumes
+* Format + mount `${DISK}1` at `/mnt/boot`
+* `pacstrap` base + kernels + needed tools (incl. `sbsigntools`, `iwd`, `snapper`, `zram-generator`)
+* Generate **loader entries** for `linux` and `linux-lts`
+* Create **root** and **$USERNAME** (passwords set)
+
+When it finishes, **reboot** into the new system:
+
+```bash
+reboot
+```
+
+(If you prefer to be explicit: `umount -R /mnt && cryptsetup close cryptroot && reboot`.)
+
+---
+
+## First login (new system), then run **post-install.sh**
+
+1. Log in as your **user** and escalate, or log in directly as **root**.
+2. Make sure `/boot` is mounted (it is by default).
+3. Run the script **as root**. Pass your user so AUR builds run unprivileged:
+
+```bash
+sudo -i
+cd /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+USER_NAME=ihaider ./post-install.sh
+```
+
+What to expect:
+
+* It fixes `/boot` permissions and updates `/etc/fstab` for a strict ESP mount.
+* Creates your **MOK** in `/root/secureboot/` and copies **`MOK.cer`** to `\EFI\arch\keys`.
+* Builds **AUR `shim-signed`** as `ihaider`, installs it via `pacman -U`.
+* Signs:
+
+  * `\EFI\systemd\systemd-bootx64.efi` → `\EFI\arch\grubx64.efi` (what shim loads)
+  * All `/boot/vmlinuz-*` kernels
+* Creates/refreshes the boot entry **“Arch (SecureBoot)”**.
+* Adds **pacman hooks** to keep signatures fresh on updates.
+
+**Reboot now.** On the next boot:
+
+* Choose **“Arch (SecureBoot)”** in your firmware menu (or it’ll be default).
+* **MokManager** appears once:
+
+  * *Enroll key from disk* → `\EFI\arch\keys\MOK.cer` → enroll → reboot.
+* You’ll land in **systemd-boot** → Arch. Done.
+
+---
+
+## Quick verification
+
+Inside Arch:
+
+```bash
+# Secure Boot state
+mokutil --sb-state
+
+# Boot entry exists
+efibootmgr -v | grep -A1 "Arch (SecureBoot)"
+
+# Signatures present on kernel(s)
+sbverify --list /boot/vmlinuz-linux
+sbverify --list /boot/vmlinuz-linux-lts
+```
+
+---
+
+## Optional: enable ZRAM now
+
+`zram-generator` is installed; add a minimal config:
+
+```bash
+cat >/etc/systemd/zram-generator.conf <<'EOF'
+[zram0]
+zram-size = ram / 2
+compression-algorithm = zstd
+swap-priority = 100
+EOF
+
+systemctl daemon-reload
+systemctl enable --now systemd-zram-setup@zram0.service
+swapon --show
+```
+
+---
+
+## Optional: initialize Snapper now
+
+`snapper` and `snap-pac` are installed; create a root config:
+
+```bash
+snapper -c root create-config /
+sed -i \
+  -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREATE="no"/' \
+  -e 's/^TIMELINE_CLEANUP=.*/TIMELINE_CLEANUP="yes"/' \
+  -e 's/^NUMBER_CLEANUP=.*/NUMBER_CLEANUP="yes"/' \
+  -e 's/^NUMBER_LIMIT=.*/NUMBER_LIMIT="5"/' \
+  /etc/snapper/configs/root
+
+systemctl enable --now snapper-cleanup.timer
+```
+
+Now every `pacman` transaction creates **pre/post** snapshots via `snap-pac`.
+
+---
+
+## Environment variables (knobs)
+
+| Var         | Where           | Default            | Meaning                               |
+| ----------- | --------------- | ------------------ | ------------------------------------- |
+| `DISK`      | pre-install.sh  | `/dev/sda`         | Target disk (e.g. `/dev/nvme0n1`)     |
+| `HOSTNAME`  | pre-install.sh  | `archhost`         | System hostname                       |
+| `USERNAME`  | pre-install.sh  | `user`             | Primary user (wheel)                  |
+| `ROOT_PASS` | pre-install.sh  | `rootpass`         | Root password                         |
+| `USER_PASS` | pre-install.sh  | `userpass`         | User’s password                       |
+| `USER_NAME` | post-install.sh | auto-detects       | Which user builds AUR (`shim-signed`) |
+| `MOK_DIR`   | post-install.sh | `/root/secureboot` | Where keys live                       |
+| `ESP_MOUNT` | post-install.sh | `/boot`            | ESP mount point                       |
+
+---
+
+## Troubleshooting (common)
+
+* **AUR build complains about running as root**
+  That’s expected; the script builds as `USER_NAME` with `su - USER_NAME` and then installs as root. Make sure `USER_NAME` exists (created by pre-install) and you ran `post-install.sh` as **root**.
+
+* **Boot lands back at firmware menu**
+  Check `efibootmgr -v` for **“Arch (SecureBoot)”** entry. If missing, rerun `post-install.sh`. Also verify `\EFI\arch\shimx64.efi` and `\EFI\arch\grubx64.efi` exist on the ESP.
+
+* **MokManager still asks to enroll hashes**
+  Ensure your MOK is **RSA-2048** (these scripts generate RSA), and that both **`systemd-bootx64.efi` → `grubx64.efi`** and **kernels** are signed. Re-run `post-install.sh` if unsure.
+
+* **`bootctl` warns about random-seed being world-readable**
+  `post-install.sh` tightens perms and updates `/etc/fstab` to mount the ESP with `umask=0077`. If you edited `/boot` manually, re-run `post-install.sh`.
+
+---
+
+## License
+
+MIT (see `LICENSE`).
