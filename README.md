@@ -204,16 +204,43 @@ zramctl
 `snapper` and `snap-pac` are installed; create a root config:
 
 ```bash
-snapper -c root create-config /
-sed -i \
-  -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREATE="no"/' \
-  -e 's/^TIMELINE_CLEANUP=.*/TIMELINE_CLEANUP="yes"/' \
-  -e 's/^NUMBER_CLEANUP=.*/NUMBER_CLEANUP="yes"/' \
-  -e 's/^NUMBER_LIMIT=.*/NUMBER_LIMIT="5"/' \
-  /etc/snapper/configs/root
 
+# Ensure the @.snapshots subvolume is mounted
+mount -o subvol=@.snapshots /dev/mapper/cryptroot /.snapshots || true
+
+# Create config directory
+mkdir -p /etc/snapper/configs
+
+# Write Snapper root config
+cat >/etc/snapper/configs/root <<'EOF'
+SUBVOLUME="/"
+FSTYPE="btrfs"
+QGROUP=""
+SPACE_LIMIT="0.5"
+FREE_LIMIT="0.2"
+ALLOW_USERS=""
+ALLOW_GROUPS="wheel"
+SYNC_ACL="no"
+TIMELINE_CREATE="no"
+TIMELINE_CLEANUP="yes"
+NUMBER_CLEANUP="yes"
+NUMBER_LIMIT="5"
+EOF
+
+# Symlink default config (force overwrite if needed)
+ln -sfn /etc/snapper/configs/root /etc/snapper/config
+
+# Add user to wheel group for snapper access
+usermod -aG wheel "$USERNAME" || true
+
+# Enable cleanup timer
 systemctl enable --now snapper-cleanup.timer
+
+# Verify setup
+snapper -c root list-configs || true
 ```
+
+---
 
 Now every `pacman` transaction creates **pre/post** snapshots via `snap-pac`.
 
