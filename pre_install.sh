@@ -131,8 +131,10 @@ useradd -m -G wheel -s /bin/bash "$USERNAME"
 echo "$USERNAME:$USER_PASS" | chpasswd
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# Enable network manager
-systemctl enable NetworkManager
+# Enable networking (systemd-networkd instead of NetworkManager)
+systemctl enable systemd-networkd
+systemctl enable systemd-resolved
+systemctl enable iwd   # optional, only if you plan to use Wi-Fi
 
 EOF  # end of arch-chroot
 
