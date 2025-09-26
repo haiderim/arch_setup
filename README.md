@@ -277,7 +277,7 @@ Yes — absolutely. Having a “Validation / Sanity Checks” section in the REA
 
 ---
 
-## 🔍 Validation / Sanity Checks (to put in README)
+## 🔍 Validation / Sanity Checks
 
 After you finish installation (post-install, first reboot), run these commands to ensure everything is working correctly:
 
