@@ -296,6 +296,79 @@ After you finish installation (post-install, first reboot), run these commands t
 
 ---
 
+# Arch Linux – encrypted Btrfs maintenance / recovery cheat-sheet
+
+> Generic checklist for unlocking, mounting and chrooting into an Arch installation  
+> that lives inside a **LUKS** container with **Btrfs sub-volumes** and a separate **ESP**.
+
+Replace device names (`/dev/sdX*`) and sub-volume names with your own.
+
+---
+
+## 1. Unlock the LUKS container
+```bash
+cryptsetup open /dev/sdX2 cryptroot   # choose any mapper name you like
+```
+
+---
+
+## 2. Mount the root sub-volume
+```bash
+mount -o subvol=@,compress=zstd /dev/mapper/cryptroot /mnt
+```
+
+---
+
+## 3. Create missing mount-points
+```bash
+mkdir -p /mnt/{boot,home,root,.snapshots,srv,var/log,var/cache/pacman/pkg}
+```
+
+---
+
+## 4. Mount remaining Btrfs sub-volumes
+```bash
+mount -o subvol=@home,compress=zstd       /dev/mapper/cryptroot /mnt/home
+mount -o subvol=@root,compress=zstd       /dev/mapper/cryptroot /mnt/root
+mount -o subvol=@.snapshots,compress=zstd /dev/mapper/cryptroot /mnt/.snapshots
+mount -o subvol=@srv,compress=zstd        /dev/mapper/cryptroot /mnt/srv
+mount -o subvol=@var_log                  /dev/mapper/cryptroot /mnt/var/log
+mount -o subvol=@var_pkgs                 /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg
+```
+
+---
+
+## 5. Mount the EFI System Partition
+```bash
+mount /dev/sdX1 /mnt/boot
+```
+
+---
+
+## 6. Enter the chroot environment
+```bash
+mount -t proc /proc /mnt/proc
+mount --rbind /sys  /mnt/sys  && mount --make-rslave /mnt/sys
+mount --rbind /dev  /mnt/dev  && mount --make-rslave /mnt/dev
+mount --rbind /run  /mnt/run  && mount --make-rslave /mnt/run
+
+arch-chroot /mnt
+```
+
+---
+
+## 7. Finished – perform maintenance
+- `pacman -Syu` / `mkinitcpio -P` / `grub-install` / `refind-install` / fix configs, etc.
+
+## 8. Clean exit
+```bash
+exit                              # leave chroot
+umount -R /mnt                    # unmount everything
+cryptsetup close cryptroot        # close LUKS container
+reboot
+
+---
+
 ## License
 
 MIT (see `LICENSE`).
