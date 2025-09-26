@@ -273,6 +273,29 @@ snapper -c root list-configs || true
 
 ---
 
+Yes — absolutely. Having a “Validation / Sanity Checks” section in the README is very helpful, especially for Secure Boot setups which are prone to subtle errors. I'll add a section with commands (and reasoning) that users can run to verify each major component is working as intended. I'll base them on Arch docs & trusted community guides.
+
+---
+
+## 🔍 Validation / Sanity Checks (to put in README)
+
+After you finish installation (post-install, first reboot), run these commands to ensure everything is working correctly:
+
+| Component                                | Check Command(s)                                          | What to Expect / Notes                                                                                                                       |                                                                                 |
+| ---------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **SecureBoot state**                     | `mokutil --sb-state`                                      | Should show **SecureBoot enabled**. If it says disabled, shim/MOK didn’t detect properly.                                                    |                                                                                 |
+| **Boot entry present**                   | `efibootmgr -v                                            | grep -A1 "Arch (SecureBoot)"`                                                                                                                | Should show an entry pointing to `\EFI\arch\shimx64.efi`.                       |
+| **Shim → loader handshake**              | Inspect ESP                                               | Under `EFI/arch` you should see `shimx64.efi`, `MokManager.efi`. Under `EFI/arch/grubx64.efi` should be signed stub linking to systemd-boot. |                                                                                 |
+| **Loader config + entries**              | `ls /boot/loader/entries`                                 | You should see `arch.conf`, `arch-fallback.conf`, `arch-lts*.conf` etc.                                                                      |                                                                                 |
+| **Kernel signatures**                    | `sbverify --list /boot/vmlinuz-linux` and for LTS         | It should report valid signature(s).                                                                                                         |                                                                                 |
+| **swap via ZRAM**                        | `swapon --show` and `zramctl`                             | `/dev/zram0` should appear with expected size and compression.                                                                               |                                                                                 |
+| **Snapper config**                       | `snapper -c root list-configs` and `snapper -c root list` | Should list the `root` config and snapshots (if any).                                                                                        |                                                                                 |
+| **Permissions on /boot and random-seed** | `ls -ld /boot` and `ls -l /boot/loader/random-seed`       | `/boot` should be `drwx------` (0700) or similar, and the random-seed file `-rw-------` (0600).                                              |                                                                                 |
+| **EFI variable permissions**             | `ls /sys/firmware/efi/efivars                             | grep SetupMode`                                                                                                                              | You should see `SetupMode-…` and possibly `SecureBoot-…` among other variables. |
+| **Pacman hook trigger**                  | Install a test kernel or simulate update                  | After the update, check `/usr/local/bin/secureboot-sign` or your pacman hooks ran, sign outputs appear.                                      |                                                                                 |
+
+---
+
 ## License
 
 MIT (see `LICENSE`).
