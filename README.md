@@ -197,12 +197,6 @@ systemctl restart swap.target
 swapon --show
 zramctl
 ```
-
-👉 This avoids the wrong `enable --now systemd-zram-setup@zram0.service` step, because `zram-generator` automatically creates and manages the swap device from config.
-
-Do you also want me to fold this into your **post-install.sh** so it’s executed automatically?
-
-
 ---
 
 ## Optional: initialize Snapper now
