@@ -54,8 +54,9 @@ mount "$EFI_PART" /mnt/boot
 
 # Step 5: Bootstrap base
 log "Installing base system"
-pacstrap -K /mnt base linux linux-lts linux-firmware btrfs-progs \
-  vim sudo networkmanager efibootmgr sbsigntools
+pacstrap /mnt base linux linux-lts linux-firmware btrfs-progs cryptsetup efibootmgr \
+         intel-ucode snapper snap-pac sbsigntools zram-generator \
+         vim less git openssl iwd
 
 # Step 6: fstab
 log "Generating fstab"
