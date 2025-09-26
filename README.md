@@ -368,7 +368,3 @@ cryptsetup close cryptroot        # close LUKS container
 reboot
 
 ---
----
-## License
-
-MIT (see `LICENSE`).
