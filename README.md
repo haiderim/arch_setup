@@ -242,10 +242,6 @@ snapper -c root list-configs || true
 
 ---
 
-Now every `pacman` transaction creates **pre/post** snapshots via `snap-pac`.
-
----
-
 ## Environment variables (knobs)
 
 | Var         | Where           | Default            | Meaning                               |
