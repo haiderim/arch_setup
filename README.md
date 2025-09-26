@@ -1,65 +1,80 @@
 # Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
 
-A collection of automated scripts and step-by-step documentation that turns a blank UEFI machine into a hardened **Arch Linux** system with:
-
-* **Full-disk encryption (LUKS2)** with **BTRFS** subvolumes
-* **systemd-boot** as the bootloader (fast, simple, no GRUB)
-* **Secure Boot** enabled using your own keys (signed bootloader & kernel, no Microsoft keys)
-* **Snapper** snapshots automatically triggered by `pacman`, `yay`, and `paru`
-* **ZRAM** swap (no swap partition/file required)
-* Post-install fixes for Secure Boot, `random-seed` permissions, and loader entries
-
----
+This repository contains **automated scripts and documentation** to set up a modern, reproducible Arch Linux system from scratch, with full-disk encryption, BTRFS subvolumes, snapshotting, ZRAM, and Secure Boot — all in one go.
 
 ## Features
 
-* 🔒 **Secure by default**: Encrypted root, signed boot chain, SBAT-compliant shim.
-* 📦 **Automated snapshotting**: Snapper runs pre/post `pacman` and AUR transactions.
-* ⚡ **Optimized memory usage**: ZRAM provides compressed in-RAM swap without disk overhead.
-* 🖥️ **Fast boot**: systemd-boot replaces GRUB, keeping configs simple and boot times low.
-* 📜 **Step-by-step scripts**: Includes `pre-install.sh` and `post-install.sh` to automate tedious setup.
+* **BTRFS on LUKS**
 
----
+  * Full-disk encryption (LUKS2).
+  * Clean subvolume layout: `@`, `@home`, `@.snapshots`, `@srv`, `@var_log`, `@var_pkgs`.
+  * Transparent compression (`zstd`).
 
-## What’s Included
+* **Snapper integration**
 
-* `pre-install.sh` – Prepares partitions, sets up LUKS, formats BTRFS with subvolumes, mounts correctly.
-* `post-install.sh` – Installs base system, configures mkinitcpio hooks, Secure Boot keys, shim/systemd-boot, Snapper, ZRAM, and fixes random-seed permissions.
-* Example **loader entries** for Arch (regular, LTS, and fallbacks).
-* Instructions for managing Secure Boot keys with `sbsigntools` + `efibootmgr`.
+  * Automatic snapshots triggered by `pacman`, `yay`, and `paru`.
+  * `@.snapshots` subvolume pre-configured for rollback.
 
----
+* **ZRAM swap**
+
+  * Managed by `zram-generator`.
+  * No need for a swap partition or file.
+
+* **Secure Boot from day one**
+
+  * Your **own custom Machine Owner Keys (MOKs)**, not Microsoft’s.
+  * Uses [shim](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot#Shim) + [systemd-boot](https://wiki.archlinux.org/title/Systemd-boot).
+  * Automatically signs `systemd-boot` and kernels via pacman hooks.
+  * MokManager used once to enroll your key (`MOK.cer`).
+
+* **systemd-boot**
+
+  * Lightweight bootloader.
+  * Fallback entries and loader configs pre-generated.
+  * No GRUB required.
+
+## Scripts
+
+* `pre-install.sh`
+  Run from the **live Arch ISO** after partitioning. Handles:
+
+  * Formatting ESP and LUKS setup.
+  * BTRFS + subvolume creation.
+  * Mounting subvolumes + ESP.
+  * Bootstrapping Arch (`pacstrap`).
+  * Generating fstab, locale, users, sudoers.
+  * Installing and configuring systemd-boot with multiple entries (main + fallback, LTS + fallback).
+
+* `post-install.sh`
+  Run **inside the freshly installed system after first boot**. Handles:
+
+  * Fixing `/boot` and `/boot/loader/random-seed` permissions.
+  * Generating + enrolling your Secure Boot keys (RSA 2048 MOK).
+  * Installing `shim-signed` from AUR.
+  * Signing `systemd-boot` (renamed to `grubx64.efi` for shim) and kernels.
+  * Creating pacman hooks to auto-re-sign on kernel/systemd updates.
+  * Setting up EFI boot entries with `efibootmgr`.
+
+## Workflow
+
+1. **Boot Arch ISO** and partition your disk (ESP + LUKS root).
+2. Run `pre-install.sh` → this installs Arch with BTRFS + systemd-boot.
+3. Reboot into your new Arch install.
+4. Run `post-install.sh` → this enables Secure Boot and auto-signing.
+5. Reboot again → enroll your key (`MOK.cer`) with MokManager once.
+
+From now on, kernel/systemd updates are signed automatically — no manual intervention needed.
 
 ## Requirements
 
-* UEFI firmware with Secure Boot support (CSM disabled).
+* UEFI firmware with Secure Boot enabled.
+* ESP (FAT32) + encrypted root partition.
 * Internet access during installation.
-* Willingness to use your **own Secure Boot keys** (Microsoft’s keys are not used).
+* Firmware **not in “Setup Mode”** (works fine with MokManager method).
 
----
+## References
 
-## Usage
-
-1. Boot Arch ISO in UEFI mode.
-2. Clone this repo into RAM or USB.
-3. Run `pre-install.sh` to set up encrypted BTRFS.
-4. `arch-chroot` into `/mnt` and run `post-install.sh`.
-5. Reboot into your new Arch system (Secure Boot enabled).
-
----
-
-## Notes
-
-* This setup **does not use GRUB** at all — only systemd-boot via shim.
-* The shim package (`shim-signed`) comes from AUR and is handled inside the scripts.
-* Secure Boot signing is fully automated — kernel and initramfs are signed at install/update.
-* Snapper integration ensures rollback safety after any system update.
-
----
-
-✅ This way, anyone reading knows:
-
-* It’s using **shim + systemd-boot**, not GRUB.
-* `shim-signed` is **AUR**, not Arch repo.
-* Both **pre-** and **post-install** scripts are included.
-* Secure Boot, Snapper, ZRAM are all automated.
+* [Arch Wiki: Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot)
+* [Arch Wiki: systemd-boot](https://wiki.archlinux.org/title/Systemd-boot)
+* [Arch Wiki: Snapper](https://wiki.archlinux.org/title/Snapper)
+* [Arch Wiki: Zram-generator](https://wiki.archlinux.org/title/Zram-generator)
