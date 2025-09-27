@@ -127,11 +127,11 @@ genfstab -U /mnt >> /mnt/etc/fstab
 log "Entering chroot to configure system"
 arch-chroot /mnt /usr/bin/env \
   PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/sbin:/bin" \
-  HOSTNAME="$HOSTNAME" \
-  USERNAME="$USERNAME" \
-  ROOT_PASS="$ROOT_PASS" \
-  USER_PASS="$USER_PASS" \
-  CRYPT_PART="$CRYPT_PART" \
+  HOSTNAME="${HOSTNAME}" \
+  USERNAME="${USERNAME}" \
+  ROOT_PASS="${ROOT_PASS}" \
+  USER_PASS="${USER_PASS}" \
+  CRYPT_PART="${CRYPT_PART}" \
   bash -s <<'CHROOT_EOF'
 set -euo pipefail
 
