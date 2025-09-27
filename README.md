@@ -595,6 +595,7 @@ exit                              # Leave chroot
 umount -R /mnt                    # Unmount everything
 cryptsetup close cryptroot        # Close LUKS container
 reboot                            # Reboot system
+```
 
 💡 **Pro Tip**: Use this recovery process for:
 - System repairs and debugging
