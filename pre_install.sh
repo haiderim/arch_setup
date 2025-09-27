@@ -211,11 +211,12 @@ packages=(
     snap-pac
     sbsigntools
     zram-generator
-    vim
+    vi
     less
     git
     openssl
     iwd
+    nano
 )
 
 if ! pacstrap /mnt "${packages[@]}"; then
