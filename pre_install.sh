@@ -6,7 +6,12 @@ log(){ echo "[pre-install] $*"; }
 # --- Variables (export these before running) ---
 DISK="${DISK:-}"
 HOSTNAME="${HOSTNAME:-archhost}"
-USERNAME="${USERNAME:-user}"
+# Don't inherit USERNAME from environment if it's 'root'
+if [[ "${USERNAME:-}" == "root" ]]; then
+    USERNAME="user"
+else
+    USERNAME="${USERNAME:-user}"
+fi
 
 # Secure password handling
 get_secure_password() {
@@ -120,7 +125,7 @@ genfstab -U /mnt >> /mnt/etc/fstab
 
 # --- Chroot configuration ---
 log "Entering chroot to configure system"
-arch-chroot /mnt /usr/bin/env -i \
+arch-chroot /mnt /usr/bin/env \
   PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/sbin:/bin" \
   HOSTNAME="$HOSTNAME" \
   USERNAME="$USERNAME" \
@@ -193,7 +198,7 @@ options cryptdevice=UUID=$ROOT_UUID:cryptroot root=/dev/mapper/cryptroot rootfla
 EOF2
 fi
 
-# Accounts
+# Accounts - SECTION
 log "Setting up user accounts..."
 log "Username: $USERNAME"
 
@@ -249,7 +254,7 @@ systemctl enable systemd-networkd systemd-resolved iwd || true
 # Reflector config
 cat > /etc/reflector.conf <<EOF2
 --save /etc/pacman.d/mirrorlist
---country India,Singapore,Germany
+--country India,Singapore,Germany,Netherlands
 --protocol https
 --latest 10
 --sort rate
