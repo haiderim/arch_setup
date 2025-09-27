@@ -6,14 +6,16 @@ log(){ echo "[pre-install] $*"; }
 # --- Variables (export these before running) ---
 DISK="${DISK:-}"
 HOSTNAME="${HOSTNAME:-archhost}"
-# USERNAME must be set and not 'root'
-if [[ -z "${USERNAME:-}" ]]; then
-    echo "ERROR: USERNAME must be provided via environment variable" >&2
+NEWUSER="${NEWUSER:-}"
+
+# NEWUSER must be set and not 'root'
+if [[ -z "$NEWUSER" ]]; then
+    echo "ERROR: NEWUSER must be provided via environment variable" >&2
     exit 1
 fi
 
-if [[ "${USERNAME}" == "root" ]]; then
-    echo "ERROR: USERNAME cannot be 'root'" >&2
+if [[ "$NEWUSER" == "root" ]]; then
+    echo "ERROR: NEWUSER cannot be 'root'" >&2
     exit 1
 fi
 
@@ -40,7 +42,7 @@ get_secure_password() {
 }
 
 ROOT_PASS="${ROOT_PASS:-$(get_secure_password "Root password")}"
-USER_PASS="${USER_PASS:-$(get_secure_password "User password for $USERNAME")}"
+USER_PASS="${USER_PASS:-$(get_secure_password "User password for $NEWUSER")}"
 
 log "Target disk: $DISK"
 
@@ -63,11 +65,11 @@ validate_password() {
 validate_parameters() {
     [[ -n "$DISK" ]] || { echo "ERROR: DISK parameter is required" >&2; exit 1; }
     [[ -n "$HOSTNAME" ]] || { echo "ERROR: HOSTNAME parameter is required" >&2; exit 1; }
-    [[ -n "$USERNAME" ]] || { echo "ERROR: USERNAME parameter is required" >&2; exit 1; }
+    [[ -n "$NEWUSER" ]] || { echo "ERROR: NEWUSER parameter is required" >&2; exit 1; }
     [[ -n "$ROOT_PASS" ]] || { echo "ERROR: ROOT_PASS parameter is required" >&2; exit 1; }
     [[ -n "$USER_PASS" ]] || { echo "ERROR: USER_PASS parameter is required" >&2; exit 1; }
     validate_disk "$DISK"
-    [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "ERROR: Invalid username format" >&2; exit 1; }
+    [[ "$NEWUSER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "ERROR: Invalid username format" >&2; exit 1; }
     [[ "$HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] || { echo "ERROR: Invalid hostname format" >&2; exit 1; }
     validate_password "$ROOT_PASS" "Root"
     validate_password "$USER_PASS" "User"
@@ -132,7 +134,7 @@ log "Entering chroot to configure system"
 arch-chroot /mnt /usr/bin/env \
   PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/sbin:/bin" \
   HOSTNAME="${HOSTNAME}" \
-  USERNAME="${USERNAME}" \
+  NEWUSER="${NEWUSER}" \
   ROOT_PASS="${ROOT_PASS}" \
   USER_PASS="${USER_PASS}" \
   CRYPT_PART="${CRYPT_PART}" \
@@ -145,7 +147,7 @@ log(){ echo "[chroot] $*"; }
 log "Starting chroot configuration..."
 log "Environment check:"
 log "  HOSTNAME: $HOSTNAME"
-log "  USERNAME: $USERNAME" 
+log "  NEWUSER: $NEWUSER" 
 log "  CRYPT_PART: $CRYPT_PART"
 
 ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime
@@ -204,43 +206,43 @@ fi
 
 # Accounts - SECTION
 log "Setting up user accounts..."
-log "Username: $USERNAME"
+log "Username: $NEWUSER"
 
 # Set root password (root user already exists in base system)
 echo "root:$ROOT_PASS" | chpasswd && log "Root password set successfully" || log "ERROR: Failed to set root password"
 
 # Create regular user only if it doesn't exist
-if ! id "$USERNAME" &>/dev/null; then
-    log "Creating user $USERNAME..."
-    if useradd -m -G wheel -s /bin/bash "$USERNAME"; then
-        log "User $USERNAME created successfully"
+if ! id "$NEWUSER" &>/dev/null; then
+    log "Creating user $NEWUSER..."
+    if useradd -m -G wheel -s /bin/bash "$NEWUSER"; then
+        log "User $NEWUSER created successfully"
     else
-        log "ERROR: Failed to create user $USERNAME"
+        log "ERROR: Failed to create user $NEWUSER"
         exit 1
     fi
 else
-    log "User $USERNAME already exists, skipping creation"
+    log "User $NEWUSER already exists, skipping creation"
     # Add to wheel group if not already a member
-    if ! groups "$USERNAME" | grep -q wheel; then
-        if usermod -aG wheel "$USERNAME"; then
-            log "Added $USERNAME to wheel group"
+    if ! groups "$NEWUSER" | grep -q wheel; then
+        if usermod -aG wheel "$NEWUSER"; then
+            log "Added $NEWUSER to wheel group"
         else
-            log "ERROR: Failed to add $USERNAME to wheel group"
+            log "ERROR: Failed to add $NEWUSER to wheel group"
         fi
     fi
 fi
 
 # Verify user was created
-if id "$USERNAME" &>/dev/null; then
-    log "User verification: $USERNAME exists"
-    log "User groups: $(groups $USERNAME)"
+if id "$NEWUSER" &>/dev/null; then
+    log "User verification: $NEWUSER exists"
+    log "User groups: $(groups $NEWUSER)"
 else
-    log "ERROR: User $USERNAME was not created properly"
+    log "ERROR: User $NEWUSER was not created properly"
     exit 1
 fi
 
 # Set user password
-if echo "$USERNAME:$USER_PASS" | chpasswd; then
+if echo "${NEWUSER}:${USER_PASS}" | chpasswd; then
     log "User password set successfully"
 else
     log "ERROR: Failed to set user password"
@@ -278,8 +280,8 @@ log "Performing final validation checks..."
 checks=0
 [[ -f "/boot/EFI/systemd/systemd-bootx64.efi" ]] && ((checks++)) && log "✓ systemd-boot installed"
 [[ -f "/boot/vmlinuz-linux" ]] && ((checks++)) && log "✓ Linux kernel installed"
-id "$USERNAME" &>/dev/null && ((checks++)) && log "✓ User $USERNAME exists"
-groups "$USERNAME" | grep -q wheel && ((checks++)) && log "✓ User in wheel group"
+id "$NEWUSER" &>/dev/null && ((checks++)) && log "✓ User $NEWUSER exists"
+groups "$NEWUSER" | grep -q wheel && ((checks++)) && log "✓ User in wheel group"
 systemctl is-enabled systemd-networkd &>/dev/null && ((checks++)) && log "✓ Network services enabled"
 
 echo "[INFO] Validation score: $checks/5"
