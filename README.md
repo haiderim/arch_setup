@@ -510,4 +510,3 @@ umount -R /mnt                    # unmount everything
 cryptsetup close cryptroot        # close LUKS container
 reboot
 
----
