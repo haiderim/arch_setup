@@ -111,7 +111,7 @@ log "Optimizing mirrors with reflector"
 reflector --country India,UnitedStates,Germany,Japan --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || pacman -Syy --noconfirm
 
 log "Installing base system"
-packages=(base linux linux-lts linux-firmware btrfs-progs cryptsetup efibootmgr intel-ucode snapper snap-pac sbsigntools zram-generator reflector vi less git openssl iwd nano)
+packages=(base linux linux-lts linux-firmware btrfs-progs cryptsetup efibootmgr intel-ucode snapper snap-pac sbsigntools zram-generator reflector vi less git openssl iwd nano sudo)
 pacman -Sy --noconfirm
 pacstrap /mnt "${packages[@]}"
 
@@ -129,6 +129,15 @@ arch-chroot /mnt /usr/bin/env -i \
   CRYPT_PART="$CRYPT_PART" \
   bash -s <<'CHROOT_EOF'
 set -euo pipefail
+
+# Define log function inside chroot
+log(){ echo "[chroot] $*"; }
+
+log "Starting chroot configuration..."
+log "Environment check:"
+log "  HOSTNAME: $HOSTNAME"
+log "  USERNAME: $USERNAME" 
+log "  CRYPT_PART: $CRYPT_PART"
 
 ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime
 hwclock --systohc
@@ -184,29 +193,50 @@ options cryptdevice=UUID=$ROOT_UUID:cryptroot root=/dev/mapper/cryptroot rootfla
 EOF2
 fi
 
-# Accounts - FIXED SECTION
+# Accounts
 log "Setting up user accounts..."
+log "Username: $USERNAME"
 
 # Set root password (root user already exists in base system)
-echo "root:$ROOT_PASS" | chpasswd
-log "Root password set successfully"
+echo "root:$ROOT_PASS" | chpasswd && log "Root password set successfully" || log "ERROR: Failed to set root password"
 
 # Create regular user only if it doesn't exist
 if ! id "$USERNAME" &>/dev/null; then
-    useradd -m -G wheel -s /bin/bash "$USERNAME"
-    log "User $USERNAME created successfully"
+    log "Creating user $USERNAME..."
+    if useradd -m -G wheel -s /bin/bash "$USERNAME"; then
+        log "User $USERNAME created successfully"
+    else
+        log "ERROR: Failed to create user $USERNAME"
+        exit 1
+    fi
 else
     log "User $USERNAME already exists, skipping creation"
     # Add to wheel group if not already a member
     if ! groups "$USERNAME" | grep -q wheel; then
-        usermod -aG wheel "$USERNAME"
-        log "Added $USERNAME to wheel group"
+        if usermod -aG wheel "$USERNAME"; then
+            log "Added $USERNAME to wheel group"
+        else
+            log "ERROR: Failed to add $USERNAME to wheel group"
+        fi
     fi
 fi
 
+# Verify user was created
+if id "$USERNAME" &>/dev/null; then
+    log "User verification: $USERNAME exists"
+    log "User groups: $(groups $USERNAME)"
+else
+    log "ERROR: User $USERNAME was not created properly"
+    exit 1
+fi
+
 # Set user password
-echo "$USERNAME:$USER_PASS" | chpasswd
-log "User password set successfully"
+if echo "$USERNAME:$USER_PASS" | chpasswd; then
+    log "User password set successfully"
+else
+    log "ERROR: Failed to set user password"
+    exit 1
+fi
 
 # Sudo configuration
 cp /etc/sudoers /etc/sudoers.bak
@@ -221,7 +251,7 @@ cat > /etc/reflector.conf <<EOF2
 --save /etc/pacman.d/mirrorlist
 --country India,Singapore,Germany
 --protocol https
---latest 10
+--latest 20
 --sort rate
 --age 12
 --completion-percent 100
