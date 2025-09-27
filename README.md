@@ -7,23 +7,23 @@
 
 ---
 
-## 📚 Table of Contents
+## Table of Contents
 
-1. [🚀 Quick Start](#quick-start)
-2. [🎯 Use Case](#use-case-locked-machines-with-forced-secure-boot)
-3. [📋 Prerequisites](#prerequisites)
-4. [💿 Disk Preparation](#partition-the-disk)
-5. [📥 Installation](#installation)
-6. [⚙️ Configuration](#configuration-run-post_installsh-in-chroot)
-7. [🔍 Verification](#verification)
-8. [📖 Reference](#reference-environment-variables)
-9. [🛠️ Troubleshooting](#troubleshooting)
-10. [🔧 Advanced](#advanced-maintenance-recovery)
-11. [❓ FAQ](#faq)
+1. [Quick Start](#quick-start)
+2. [Use Case](#use-case-locked-machines-with-forced-secure-boot)
+3. [Prerequisites](#prerequisites)
+4. [Partition the Disk](#partition-the-disk)
+5. [Installation](#installation)
+6. [Configuration](#configuration-run-post_installsh-in-chroot)
+7. [Verification](#verification)
+8. [Reference](#reference-environment-variables)
+9. [Troubleshooting](#troubleshooting)
+10. [Advanced](#advanced-maintenance-recovery)
+11. [FAQ](#faq)
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 For experienced users: install Arch with full-disk encryption and Secure Boot in 5 minutes.
 
@@ -75,7 +75,7 @@ reboot
 
 ---
 
-## 🎯 Use Case: Locked Machines with Forced Secure Boot
+## Use Case: Locked Machines with Forced Secure Boot
 
 Use these scripts if:
 - Secure Boot **cannot** be disabled in firmware (corporate, enterprise, or restricted firmware).
@@ -89,7 +89,7 @@ Don't use if:
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 **Tools Required:**
 - `git`, `wget`, `base-devel`, `iwd` (for Wi-Fi), `snapper`, `zram-generator`, `sbsigntools`, `sgdisk`, `efibootmgr`
@@ -111,7 +111,7 @@ timedatectl status
 
 ---
 
-## 💿 Partition the Disk
+## Partition the Disk
 
 > **SATA:** `/dev/sda1`, `/dev/sda2`  
 > **NVMe:** `/dev/nvme0n1p1`, `/dev/nvme0n1p2`  
@@ -130,7 +130,7 @@ partprobe "$DISK"
 
 ---
 
-## 📥 Installation
+## Installation
 
 ### Option 1: Clone Repository (Recommended)
 ```bash
@@ -151,7 +151,7 @@ chmod +x pre_install.sh post_install.sh
 
 ---
 
-## Run **pre_install.sh** (from ISO)
+## Run pre_install.sh (from ISO)
 
 ```bash
 DISK=/dev/sda \
@@ -171,7 +171,7 @@ USER_PASS='your-user-password' \
 
 ---
 
-## ⚙️ Configuration: Run post_install.sh (in chroot)
+## Configuration: Run post_install.sh (in chroot)
 
 **You must run `post_install.sh` before reboot!**
 
@@ -202,7 +202,7 @@ USER_NAME=your-user ./post_install.sh
 
 ---
 
-## 🔍 Verification
+## Verification
 
 After first boot, check:
 
@@ -252,7 +252,7 @@ ls -la /root/secureboot/
 
 ---
 
-## 📖 Reference: Environment Variables
+## Reference: Environment Variables
 
 | Variable      | Default         | Purpose                 | Valid Values              | Notes                                         |
 |---------------|----------------|-------------------------|---------------------------|-----------------------------------------------|
@@ -271,7 +271,7 @@ ls -la /root/secureboot/
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 **Disk device ambiguity:**  
 - If using NVMe, always use `/dev/nvme0n1p1` and `/dev/nvme0n1p2` for partitions.
@@ -296,7 +296,7 @@ ls -la /root/secureboot/
 
 ---
 
-## 🔧 Advanced Maintenance & Recovery
+## Advanced Maintenance & Recovery
 
 **Unlock, mount, and chroot into an encrypted Arch install:**
 ```bash
@@ -316,7 +316,7 @@ cryptsetup close cryptroot
 
 ---
 
-## ❓ FAQ
+## FAQ
 
 **Q: What if I reboot before running post_install.sh?**  
 A: System won’t boot with Secure Boot enabled. Re-enter chroot and run post_install.sh.
