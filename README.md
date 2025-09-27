@@ -58,9 +58,9 @@ echo "Installation complete. Now run post_install.sh for Secure Boot setup."
 ### 4. Complete Setup (Secure Boot Configuration)
 ```bash
 # Copy scripts into chroot and run post-install
-cp -r /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot /mnt/root/
+cp -r /path/to/arch_setup /mnt/root/
 arch-chroot /mnt
-cd /root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+cd /root/arch_setup
 USER_NAME=your-user ./post_install.sh
 
 # After post-install completes, exit and reboot
@@ -216,16 +216,16 @@ You’ll now have:
 ```bash
 # From the ISO shell:
 pacman -Sy --noconfirm git
-git clone https://github.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot.git
-cd Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+git clone https://github.com/haiderim/arch_setup.git
+cd arch_setup
 chmod +x pre_install.sh post_install.sh
 ```
 
 ### Option 2: Download Scripts Directly
 ```bash
 # Alternative: Download individual scripts
-wget https://raw.githubusercontent.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot/main/pre_install.sh
-wget https://raw.githubusercontent.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot/main/post_install.sh
+wget https://raw.githubusercontent.com/haiderim/arch_setup/main/pre_install.sh
+wget https://raw.githubusercontent.com/haiderim/arch_setup/main/post_install.sh
 chmod +x pre_install.sh post_install.sh
 ```
 
@@ -266,8 +266,8 @@ When it finishes, **stay in the chroot environment** to run the post-install scr
 ```bash
 # If you're still in the chroot from pre_install.sh:
 # Copy scripts into the chroot environment
-cp -r /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot /mnt/root/
-cd /mnt/root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+cp -r /path/to/arch_setup /mnt/root/
+cd /mnt/root/arch_setup
 
 # Run post-install (replace with your username)
 USER_NAME=your-username ./post_install.sh
@@ -283,7 +283,7 @@ mount /dev/sda1 /mnt/boot  # Adjust disk as needed
 arch-chroot /mnt
 
 # In chroot, run post-install:
-cd /root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+cd /root/arch_setup
 USER_NAME=your-username ./post_install.sh
 ```
 
