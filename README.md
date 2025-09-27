@@ -8,10 +8,10 @@
 2. [🎯 Use Case](#-use-case-locked-machines-with-forced-secure-boot)
 3. [📋 Prerequisites](#-prerequisites-from-the-arch-iso)
 4. [💿 Disk Preparation](#-partition-the-disk-one-liner-example)
-5. [📥 Installation](#-installation)
+5. [📥 Installation](#-get-the-scripts)
 6. [⚙️ Configuration](#-first-login-new-system-then-run-post-installsh)
 7. [🔍 Verification](#-quick-verification)
-8. [📖 Reference](#-reference)
+8. [📖 Reference](#-environment-variables-knobs)
 9. [🛠️ Troubleshooting](#-troubleshooting-common-issues-on-locked-machines)
 10. [🔧 Advanced](#-arch-linux--encrypted-btrfs-maintenance--recovery-cheat-sheet)
 
