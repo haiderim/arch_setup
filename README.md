@@ -1,14 +1,84 @@
-# Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+# Arch Linux Secure Boot Installation
+
+> **⚠️ IMPORTANT**: These scripts are designed specifically for **locked machines where Secure Boot cannot be disabled** and is **forced upon you**. If you can disable Secure Boot in your firmware, use standard Arch Linux installation methods instead.
+
+## 📚 Table of Contents
+
+1. [🚀 Quick Start](#-quick-start)
+2. [🎯 Use Case](#-use-case-locked-machines-with-forced-secure-boot)
+3. [📋 Prerequisites](#-prerequisites-from-the-arch-iso)
+4. [💿 Disk Preparation](#-partition-the-disk-one-liner-example)
+5. [📥 Installation](#-installation)
+6. [⚙️ Configuration](#-first-login-new-system-then-run-post-installsh)
+7. [🔍 Verification](#-quick-verification)
+8. [📖 Reference](#-reference)
+9. [🛠️ Troubleshooting](#-troubleshooting-common-issues-on-locked-machines)
+10. [🔧 Advanced](#-arch-linux--encrypted-btrfs-maintenance--recovery-cheat-sheet)
+
+---
+
+## 🚀 Quick Start
+
+**For experienced users**: Here's the essential workflow in 5 minutes.
+
+### 1. Prepare Environment
+```bash
+# Boot from Arch ISO, ensure network and time sync
+timedatectl set-ntp true
+ping -c 1 archlinux.org
+```
+
+### 2. Prepare Disk
+```bash
+# ⚠️ WARNING: Destroys all data on target disk
+DISK=/dev/sda    # or /dev/nvme0n1
+
+sgdisk --zap-all "$DISK"
+sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI System" "$DISK"
+sgdisk -n 2:0:0   -t 2:8300 -c 2:"Linux LUKS" "$DISK"
+partprobe "$DISK"
+```
+
+### 3. Run Installation
+```bash
+# Set your configuration
+DISK=/dev/sda \
+HOSTNAME=your-hostname \
+USERNAME=your-user \
+ROOT_PASS='your-root-password' \
+USER_PASS='your-user-password' \
+./pre-install.sh
+
+# Reboot into new system
+reboot
+```
+
+### 4. Complete Setup
+```bash
+# After first boot, run post-install
+sudo -i
+cd /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+USER_NAME=your-user ./post-install.sh
+
+# Reboot and enroll MOK key when prompted
+reboot
+```
+
+**Need more details?** See the comprehensive sections below.
+
+---
 
 Automated scripts to install **Arch Linux** with:
 
 * **Btrfs on LUKS** (full-disk encryption, clean subvol layout)
 * **systemd-boot** (fast) but chainloaded via **shim** for **Secure Boot**
 * Your own **MOK (RSA-2048)**; kernels + `systemd-boot` auto-signed on updates
-* **Snapper** + `snap-pac` preinstalled (ready for config)
-* **zram-generator** preinstalled (ready for config)
+* **Snapper** + `snap-pac` preinstalled and **automatically configured**
+* **zram-generator** preinstalled and **automatically configured**
 
-> These scripts are designed for machines where Secure Boot is **enabled** and you **cannot** put firmware in “Setup Mode”. We use **shim + MokManager** so you only enroll your **certificate once**—no more hash enrollment per kernel.
+> These scripts are designed for machines where Secure Boot is **enabled** and you **cannot** put firmware in "Setup Mode". We use **shim + MokManager** so you only enroll your **certificate once**—no more hash enrollment per kernel.
+>
+> **TARGET AUDIENCE**: Users with **locked corporate laptops**, **restricted firmware**, or any machine where **Secure Boot is mandatory and cannot be disabled**.
 
 ---
 
@@ -29,33 +99,86 @@ Automated scripts to install **Arch Linux** with:
   * Generates **MOK (RSA-2048)**, exports `MOK.cer` to the ESP
   * Builds & installs **`shim-signed` (AUR)** as your user; root installs the package
   * Signs **systemd-boot** (as `grubx64.efi` for shim) and **kernels**
-  * Adds an NVRAM boot entry **“Arch (SecureBoot)”** pointing to `\EFI\arch\shimx64.efi`
+  * Adds an NVRAM boot entry **"Arch (SecureBoot)"** pointing to `\EFI\arch\shimx64.efi`
   * Installs **pacman hooks** to re-sign on kernel/systemd updates
+  * **Automatically configures ZRAM** compressed swap with optimal settings
+  * **Automatically configures Snapper** for Btrfs snapshot management
 
----
+## 🎯 Use Case: Locked Machines with Forced Secure Boot
 
-## Prerequisites (from the Arch ISO)
+These scripts solve the specific problem of installing Arch Linux on machines where:
 
-1. **UEFI boot** the official Arch ISO.
-2. **Networking** (pick one):
+* **Secure Boot is mandatory** and cannot be disabled in firmware
+* **Administrative access is restricted** (no "Setup Mode" available)
+* **Corporate/enterprise environments** with locked-down firmware
+* **UEFI firmware that won't allow** disabling Secure Boot or adding custom keys
 
-   * Ethernet: usually plug-and-play.
-   * Wi-Fi (iwd):
+### ✅ When to Use These Scripts
 
-     ```bash
-     iwctl
-     # within iwctl:
-     device list
-     station <wlan> scan
-     station <wlan> get-networks
-     station <wlan> connect "<SSID>"
-     quit
-     ```
-3. **Time sync**:
+**USE THIS APPROACH WHEN:**
+- You have a **locked corporate laptop** with Secure Boot enforced
+- Your machine **won't boot** unsigned EFI binaries
+- You **cannot access** firmware setup to disable Secure Boot
+- IT department **controls firmware settings** and won't disable Secure Boot
+- You need **full-disk encryption** with Secure Boot compliance
 
-   ```bash
-   timedatectl set-ntp true
-   ```
+### ❌ Use Standard Arch Install When:
+- You can **disable Secure Boot** in your firmware settings
+- You have **administrative access** to UEFI settings
+- You're installing on **personal hardware** with flexible firmware
+- You don't need **Secure Boot compliance** for your use case
+
+### 🔧 Why This Complex Approach?
+
+Standard Arch Linux installation doesn't work when:
+1. **Firmware locks out** unsigned bootloaders
+2. **No "Setup Mode"** to enroll custom keys directly
+3. **Corporate policies** require Secure Boot to remain enabled
+4. **Hardware restrictions** prevent disabling security features
+
+Our solution uses **shim + MOK** to create a trusted boot chain that complies with Secure Boot requirements while giving you full control over your system.
+
+## 📋 Prerequisites (from the Arch ISO)
+
+### 1. Boot Environment
+- **UEFI boot** the official Arch ISO
+- **Network connectivity** (see options below)
+- **Time synchronization** (critical for package signing)
+
+### 2. Network Setup
+
+**Ethernet (usually plug-and-play):**
+```bash
+# Test connectivity
+ping -c 1 archlinux.org
+```
+
+**Wi-Fi (using iwd):**
+```bash
+# Start iwd interactive mode
+iwctl
+
+# Within iwctl:
+device list                    # Show wireless devices
+station <wlan> scan           # Scan for networks
+station <wlan> get-networks   # Show available networks
+station <wlan> connect "<SSID>"  # Connect to network
+quit                           # Exit iwd
+```
+
+### 3. System Preparation
+```bash
+# Sync time (critical for package verification)
+timedatectl set-ntp true
+
+# Verify time synchronization
+timedatectl status
+
+# Test internet connectivity
+ping -c 1 archlinux.org
+```
+
+**💡 Pro Tip:** If network fails, try `dhcpd` or check `ip link` for interface names.
 
 ---
 
@@ -145,8 +268,10 @@ What to expect:
 
   * `\EFI\systemd\systemd-bootx64.efi` → `\EFI\arch\grubx64.efi` (what shim loads)
   * All `/boot/vmlinuz-*` kernels
-* Creates/refreshes the boot entry **“Arch (SecureBoot)”**.
+* Creates/refreshes the boot entry **"Arch (SecureBoot)"**.
 * Adds **pacman hooks** to keep signatures fresh on updates.
+* **Automatically configures ZRAM** compressed swap (ram/2, zstd compression).
+* **Automatically configures Snapper** for Btrfs snapshots with cleanup policies.
 
 **Reboot now.** On the next boot:
 
@@ -176,68 +301,43 @@ sbverify --list /boot/vmlinuz-linux-lts
 
 ---
 
-## Optional: enable ZRAM now
+## ZRAM Configuration (Automated)
 
-`zram-generator` is installed; add a minimal config:
+ZRAM compressed swap is **automatically configured** by `post-install.sh` with optimal settings:
 
+- **Size**: Half of available RAM (`ram / 2`)
+- **Compression**: `zstd` (best compression ratio)
+- **Priority**: `100` (high priority for swap)
+- **Activation**: Enabled immediately after configuration
+
+To verify ZRAM is working:
 ```bash
-# Configure ZRAM swap with zram-generator
-cat >/etc/systemd/zram-generator.conf <<'EOF'
-[zram0]
-zram-size = ram / 2
-compression-algorithm = zstd
-swap-priority = 100
-EOF
-
-# Reload systemd and activate swap
-systemctl daemon-reexec
-systemctl restart swap.target
-
-# Verify
-swapon --show
-zramctl
+swapon --show  # Should show /dev/zram0
+zramctl        # Should show size and compression info
 ```
 ---
 
-## Optional: initialize Snapper now
+## Snapper Configuration (Automated)
 
-`snapper` and `snap-pac` are installed; create a root config:
+Snapper Btrfs snapshot management is **automatically configured** by `post-install.sh`:
 
+- **Configuration**: Root filesystem snapshot management enabled
+- **Subvolume**: `@.snapshots` automatically mounted and configured
+- **Cleanup**: Automatic cleanup with 5 snapshot limit
+- **Access**: User added to `wheel` group for snapshot management
+- **Timer**: Cleanup timer enabled for automatic maintenance
+
+The automated setup includes:
+- **Btrfs subvolume**: `@.snapshots` mounted at `/.snapshots`
+- **Configuration file**: `/etc/snapper/configs/root` with optimal settings
+- **User permissions**: Primary user granted snapshot management access
+- **Systemd timer**: Automatic cleanup of old snapshots
+
+To verify Snapper is working:
 ```bash
-
-# Ensure the @.snapshots subvolume is mounted
-mount -o subvol=@.snapshots /dev/mapper/cryptroot /.snapshots || true
-
-# Create config directory
-mkdir -p /etc/snapper/configs
-
-# Write Snapper root config
-cat >/etc/snapper/configs/root <<'EOF'
-SUBVOLUME="/"
-FSTYPE="btrfs"
-QGROUP=""
-SPACE_LIMIT="0.5"
-FREE_LIMIT="0.2"
-ALLOW_USERS=""
-ALLOW_GROUPS="wheel"
-SYNC_ACL="no"
-TIMELINE_CREATE="no"
-TIMELINE_CLEANUP="yes"
-NUMBER_CLEANUP="yes"
-NUMBER_LIMIT="5"
-EOF
-
-# Symlink default config (force overwrite if needed)
-ln -sfn /etc/snapper/configs/root /etc/snapper/config
-
-# Add user to wheel group for snapper access
-usermod -aG wheel "$USERNAME" || true
-
-# Enable cleanup timer
-systemctl enable --now snapper-cleanup.timer
-
-# Verify setup
-snapper -c root list-configs || true
+snapper -c root list-configs  # Should show root config
+ls -la /.snapshots             # Should show snapshot directory
+systemctl status snapper-cleanup.timer  # Should be active
 ```
 
 ---
@@ -257,13 +357,22 @@ snapper -c root list-configs || true
 
 ---
 
-## Troubleshooting (common)
+## Troubleshooting (Common Issues on Locked Machines)
+
+* **"Secure Boot is enabled but I can't disable it"**
+  This is exactly what these scripts are designed for! Proceed with the installation - our shim + MOK approach works with mandatory Secure Boot.
+
+* **"Firmware won't boot unsigned EFI binaries"**
+  The scripts handle this by signing everything with your MOK and using shim as a trusted bootloader. Follow the MokManager enrollment process after first boot.
+
+* **"Corporate laptop with restricted firmware settings"**
+  These scripts are perfect for your situation. They work around IT restrictions by creating a trusted boot chain that complies with Secure Boot policies.
 
 * **AUR build complains about running as root**
-  That’s expected; the script builds as `USER_NAME` with `su - USER_NAME` and then installs as root. Make sure `USER_NAME` exists (created by pre-install) and you ran `post-install.sh` as **root**.
+  That's expected; the script builds as `USER_NAME` with `su - USER_NAME` and then installs as root. Make sure `USER_NAME` exists (created by pre-install) and you ran `post-install.sh` as **root**.
 
 * **Boot lands back at firmware menu**
-  Check `efibootmgr -v` for **“Arch (SecureBoot)”** entry. If missing, rerun `post-install.sh`. Also verify `\EFI\arch\shimx64.efi` and `\EFI\arch\grubx64.efi` exist on the ESP.
+  Check `efibootmgr -v` for **"Arch (SecureBoot)"** entry. If missing, rerun `post-install.sh`. Also verify `\EFI\arch\shimx64.efi` and `\EFI\arch\grubx64.efi` exist on the ESP.
 
 * **MokManager still asks to enroll hashes**
   Ensure your MOK is **RSA-2048** (these scripts generate RSA), and that both **`systemd-bootx64.efi` → `grubx64.efi`** and **kernels** are signed. Re-run `post-install.sh` if unsure.
@@ -271,9 +380,43 @@ snapper -c root list-configs || true
 * **`bootctl` warns about random-seed being world-readable**
   `post-install.sh` tightens perms and updates `/etc/fstab` to mount the ESP with `umask=0077`. If you edited `/boot` manually, re-run `post-install.sh`.
 
+* **ZRAM not active after boot**
+  Check `systemctl status zram-generator.service` and `swapon --show`. The automated setup should activate ZRAM immediately. If not, run `systemctl restart swap.target`.
+
+* **Snapper configuration not found**
+  Verify `snapper -c root list-configs` shows the root configuration. The automated setup mounts `@.snapshots` and creates the config. If missing, ensure Btrfs subvolumes are properly mounted.
+
+* **Pacman hooks not firing after updates**
+  Check that all hooks exist in `/etc/pacman.d/hooks/`: `85-systemd-boot-sign.hook`, `90-bootctl-update.hook`, `95-secureboot-sign.hook`. Test with `pacman -Syu --debug`.
+
+* **Secure Boot signatures not updating**
+  Verify the signing script works: `/usr/local/bin/secureboot-sign`. Check that MOK keys exist in `/root/secureboot/` and that `sbsigntools` is installed.
+
+* **"Machine refuses to boot any unsigned binaries"**
+  This is normal for locked machines. Our scripts ensure all boot components are properly signed. Make sure you complete the MokManager enrollment process on first boot.
+
 ---
 
-Yes — absolutely. Having a “Validation / Sanity Checks” section in the README is very helpful, especially for Secure Boot setups which are prone to subtle errors. I'll add a section with commands (and reasoning) that users can run to verify each major component is working as intended. I'll base them on Arch docs & trusted community guides.
+## 🤖 Automation Features
+
+The scripts include comprehensive automation for Secure Boot, system updates, and maintenance:
+
+### Secure Boot Automation
+- **MOK Generation**: Automatic RSA-2048 key creation and enrollment
+- **Kernel Signing**: Automatic signing during updates via mkinitcpio hooks
+- **Bootloader Signing**: Systemd-boot automatically signed via pacman hooks
+- **Smart Verification**: Only re-signs if signatures are missing/invalid
+
+### System Maintenance Automation
+- **ZRAM Management**: Compressed swap automatically configured and activated
+- **Snapper Integration**: Btrfs snapshots with automatic cleanup
+- **Update Resilience**: All signatures automatically refreshed on package updates
+- **Permission Management**: ESP and boot directory permissions automatically secured
+
+### Pacman Hook Chain
+1. **85-systemd-boot-sign.hook**: Signs systemd-boot binaries when updated
+2. **90-bootctl-update.hook**: Updates bootloader after systemd upgrades
+3. **95-secureboot-sign.hook**: Signs kernels and maintains EFI chain
 
 ---
 
@@ -281,18 +424,18 @@ Yes — absolutely. Having a “Validation / Sanity Checks” section in the REA
 
 After you finish installation (post-install, first reboot), run these commands to ensure everything is working correctly:
 
-| Component                                | Check Command(s)                                          | What to Expect / Notes                                                                                                                       |                                                                                 |
-| ---------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| **SecureBoot state**                     | `mokutil --sb-state`                                      | Should show **SecureBoot enabled**. If it says disabled, shim/MOK didn’t detect properly.                                                    |                                                                                 |
-| **Boot entry present**                   | `efibootmgr -v`                                            | grep -A1 "Arch (SecureBoot)"`                                                                                                                | Should show an entry pointing to `\EFI\arch\shimx64.efi`.                       |
-| **Shim → loader handshake**              | Inspect ESP                                               | Under `EFI/arch` you should see `shimx64.efi`, `MokManager.efi`. Under `EFI/arch/grubx64.efi` should be signed stub linking to systemd-boot. |                                                                                 |
-| **Loader config + entries**              | `ls /boot/loader/entries`                                 | You should see `arch.conf`, `arch-fallback.conf`, `arch-lts*.conf` etc.                                                                      |                                                                                 |
-| **Kernel signatures**                    | `sbverify --list /boot/vmlinuz-linux` and for LTS         | It should report valid signature(s).                                                                                                         |                                                                                 |
-| **swap via ZRAM**                        | `swapon --show` and `zramctl`                             | `/dev/zram0` should appear with expected size and compression.                                                                               |                                                                                 |
-| **Snapper config**                       | `snapper -c root list-configs` and `snapper -c root list` | Should list the `root` config and snapshots (if any).                                                                                        |                                                                                 |
-| **Permissions on /boot and random-seed** | `ls -ld /boot` and `ls -l /boot/loader/random-seed`       | `/boot` should be `drwx------` (0700) or similar, and the random-seed file `-rw-------` (0600).                                              |                                                                                 |
-| **EFI variable permissions**             | `ls /sys/firmware/efi/efivars`                             | grep SetupMode                                                                                                                              | You should see `SetupMode-…` and possibly `SecureBoot-…` among other variables. |
-| **Pacman hook trigger**                  | Install a test kernel or simulate update                  | After the update, check `/usr/local/bin/secureboot-sign` or your pacman hooks ran, sign outputs appear.                                      |                                                                                 |
+| Component | Check Command(s) | What to Expect / Notes |
+|-----------|------------------|------------------------|
+| **SecureBoot state** | `mokutil --sb-state` | Should show **SecureBoot enabled**. If disabled, shim/MOK didn't detect properly. |
+| **Boot entry present** | `efibootmgr -v \| grep -A1 "Arch (SecureBoot)"` | Should show an entry pointing to `\EFI\arch\shimx64.efi`. |
+| **Shim → loader handshake** | `ls -la /boot/EFI/arch/` | Should see `shimx64.efi`, `MokManager.efi`, and `grubx64.efi` (signed systemd-boot). |
+| **Loader config + entries** | `ls /boot/loader/entries/` | Should see `arch.conf`, `arch-fallback.conf`, `arch-lts*.conf` etc. |
+| **Kernel signatures** | `sbverify --list /boot/vmlinuz-linux` and `sbverify --list /boot/vmlinuz-linux-lts` | Both should report valid signature(s). |
+| **ZRAM swap active** | `swapon --show` and `zramctl` | `/dev/zram0` should appear with size = ram/2 and zstd compression. |
+| **Snapper configured** | `snapper -c root list-configs` | Should list the `root` config with proper Btrfs settings. |
+| **Permissions on /boot** | `ls -ld /boot` and `ls -l /boot/loader/random-seed` | `/boot` should be `drwx------` (0700), random-seed should be `-rw-------` (0600). |
+| **Automation hooks** | `ls /etc/pacman.d/hooks/` | Should see `85-systemd-boot-sign.hook`, `90-bootctl-update.hook`, `95-secureboot-sign.hook`. |
+| **MOK keys present** | `ls -la /root/secureboot/` | Should see `MOK.key`, `MOK.crt`, and `MOK.cer`. |
 
 ---
 
@@ -366,3 +509,7 @@ exit                              # leave chroot
 umount -R /mnt                    # unmount everything
 cryptsetup close cryptroot        # close LUKS container
 reboot
+
+---
+
+*Last updated: $(date +%Y-%m-%d)*
