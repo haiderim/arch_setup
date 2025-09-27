@@ -6,11 +6,15 @@ log(){ echo "[pre-install] $*"; }
 # --- Variables (export these before running) ---
 DISK="${DISK:-}"
 HOSTNAME="${HOSTNAME:-archhost}"
-# Don't inherit USERNAME from environment if it's 'root'
-if [[ "${USERNAME:-}" == "root" ]]; then
-    USERNAME="user"
-else
-    USERNAME="${USERNAME:-user}"
+# USERNAME must be set and not 'root'
+if [[ -z "${USERNAME:-}" ]]; then
+    echo "ERROR: USERNAME must be provided via environment variable" >&2
+    exit 1
+fi
+
+if [[ "${USERNAME}" == "root" ]]; then
+    echo "ERROR: USERNAME cannot be 'root'" >&2
+    exit 1
 fi
 
 # Secure password handling
