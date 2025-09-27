@@ -511,5 +511,3 @@ cryptsetup close cryptroot        # close LUKS container
 reboot
 
 ---
-
-*Last updated: $(date +%Y-%m-%d)*
