@@ -251,7 +251,7 @@ cat > /etc/reflector.conf <<EOF2
 --save /etc/pacman.d/mirrorlist
 --country India,Singapore,Germany
 --protocol https
---latest 20
+--latest 10
 --sort rate
 --age 12
 --completion-percent 100
