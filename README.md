@@ -1,6 +1,8 @@
 # Arch Linux Secure Boot Installation
 
 > **⚠️ IMPORTANT**: These scripts are designed specifically for **locked machines where Secure Boot cannot be disabled** and is **forced upon you**. If you can disable Secure Boot in your firmware, use standard Arch Linux installation methods instead.
+>
+> **🚨 CRITICAL**: You **MUST** run `post_install.sh` **BEFORE** rebooting! The system will **NOT BOOT** with Secure Boot enabled without the shim and MOK setup that `post_install.sh` provides.
 
 ## 📚 Table of Contents
 
@@ -8,12 +10,12 @@
 2. [🎯 Use Case](#-use-case-locked-machines-with-forced-secure-boot)
 3. [📋 Prerequisites](#-prerequisites-from-the-arch-iso)
 4. [💿 Disk Preparation](#-partition-the-disk-one-liner-example)
-5. [📥 Installation](#-get-the-scripts)
-6. [⚙️ Configuration](#-first-login-new-system-then-run-post-installsh)
-7. [🔍 Verification](#-quick-verification)
-8. [📖 Reference](#-environment-variables-knobs)
+5. [📥 Installation](#-installation)
+6. [⚙️ Configuration](#-configuration-run-post_installsh-in-chroot)
+7. [🔍 Verification](#-verification-quick-system-health-check)
+8. [📖 Reference](#-reference-environment-variables)
 9. [🛠️ Troubleshooting](#-troubleshooting-common-issues-on-locked-machines)
-10. [🔧 Advanced](#-arch-linux--encrypted-btrfs-maintenance--recovery-cheat-sheet)
+10. [🔧 Advanced](#-advanced-arch-linux--encrypted-btrfs-maintenance--recovery-cheat-sheet)
 
 ---
 
@@ -47,20 +49,24 @@ HOSTNAME=your-hostname \
 USERNAME=your-user \
 ROOT_PASS='your-root-password' \
 USER_PASS='your-user-password' \
-./pre-install.sh
+./pre_install.sh
 
-# Reboot into new system
-reboot
+# DO NOT REBOOT YET - Stay in chroot for post-install
+echo "Installation complete. Now run post_install.sh for Secure Boot setup."
 ```
 
-### 4. Complete Setup
+### 4. Complete Setup (Secure Boot Configuration)
 ```bash
-# After first boot, run post-install
-sudo -i
-cd /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
-USER_NAME=your-user ./post-install.sh
+# Copy scripts into chroot and run post-install
+cp -r /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot /mnt/root/
+arch-chroot /mnt
+cd /root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+USER_NAME=your-user ./post_install.sh
 
-# Reboot and enroll MOK key when prompted
+# After post-install completes, exit and reboot
+exit
+umount -R /mnt
+cryptsetup close cryptroot
 reboot
 ```
 
@@ -84,7 +90,7 @@ Automated scripts to install **Arch Linux** with:
 
 ## What the scripts do
 
-* **`pre-install.sh`** (run from Arch ISO):
+* **`pre_install.sh`** (run from Arch ISO):
 
   * Formats ESP, sets up **LUKS2** and **Btrfs** with subvolumes:
 
@@ -93,7 +99,7 @@ Automated scripts to install **Arch Linux** with:
   * Installs + seeds **systemd-boot** and **loader entries** (Arch + LTS, + fallbacks)
   * Creates **root** and **user**, enables sudo for the `wheel` group
 
-* **`post-install.sh`** (run inside the freshly installed Arch after first boot):
+* **`post_install.sh`** (run inside the freshly installed Arch after first boot):
 
   * Fixes `/boot` + random-seed permissions and tightens ESP mount options
   * Generates **MOK (RSA-2048)**, exports `MOK.cer` to the ESP
@@ -204,19 +210,30 @@ You’ll now have:
 
 ---
 
-## Get the scripts
+## 📥 Installation
 
+### Option 1: Clone Repository (Recommended)
 ```bash
 # From the ISO shell:
 pacman -Sy --noconfirm git
 git clone https://github.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot.git
 cd Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
-chmod +x pre-install.sh post-install.sh
+chmod +x pre_install.sh post_install.sh
 ```
+
+### Option 2: Download Scripts Directly
+```bash
+# Alternative: Download individual scripts
+wget https://raw.githubusercontent.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot/main/pre_install.sh
+wget https://raw.githubusercontent.com/<you>/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot/main/post_install.sh
+chmod +x pre_install.sh post_install.sh
+```
+
+💡 **Security Note**: Always review scripts before execution, especially when downloading from the internet.
 
 ---
 
-## Run **pre-install.sh** (from the ISO)
+## Run **pre_install.sh** (from the ISO)
 
 Set your values and run in **one** command:
 
@@ -226,7 +243,7 @@ HOSTNAME=x280-arch-01 \
 USERNAME=ihaider \
 ROOT_PASS='your-root-password' \
 USER_PASS='your-user-password' \
-./pre-install.sh
+./pre_install.sh
 ```
 
 That script will:
@@ -237,26 +254,37 @@ That script will:
 * Generate **loader entries** for `linux` and `linux-lts`
 * Create **root** and **$USERNAME** (passwords set)
 
-When it finishes, **reboot** into the new system:
-
-```bash
-reboot
-```
-
-(If you prefer to be explicit: `umount -R /mnt && cryptsetup close cryptroot && reboot`.)
+When it finishes, **stay in the chroot environment** to run the post-install script:
 
 ---
 
-## First login (new system), then run **post-install.sh**
+## ⚙️ Configuration: Run post_install.sh (in chroot)
 
-1. Log in as your **user** and escalate, or log in directly as **root**.
-2. Make sure `/boot` is mounted (it is by default).
-3. Run the script **as root**. Pass your user so AUR builds run unprivileged:
+**CRITICAL**: You must run `post_install.sh` **BEFORE** rebooting! The system won't boot with Secure Boot enabled without the shim and MOK setup.
 
+### Option 1: Continue from Current Chroot
 ```bash
-sudo -i
-cd /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
-USER_NAME=ihaider ./post-install.sh
+# If you're still in the chroot from pre_install.sh:
+# Copy scripts into the chroot environment
+cp -r /path/to/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot /mnt/root/
+cd /mnt/root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+
+# Run post-install (replace with your username)
+USER_NAME=your-username ./post_install.sh
+```
+
+### Option 2: Re-enter Chroot
+```bash
+# If you exited chroot, re-enter it:
+mount -o subvol=@,compress=zstd /dev/mapper/cryptroot /mnt
+mount /dev/sda1 /mnt/boot  # Adjust disk as needed
+
+# Enter chroot
+arch-chroot /mnt
+
+# In chroot, run post-install:
+cd /root/Arch-Linux-BTRFS-Snapper-ZRAM-SecureBoot
+USER_NAME=your-username ./post_install.sh
 ```
 
 What to expect:
@@ -283,27 +311,70 @@ What to expect:
 
 ---
 
-## Quick verification
+## 🔍 Verification: Quick System Health Check
 
-Inside Arch:
+After completing the installation and first boot, run these commands to verify everything is working correctly:
 
+### Secure Boot Status
 ```bash
-# Secure Boot state
+# Check Secure Boot state
 mokutil --sb-state
+# Expected: SecureBoot enabled
 
-# Boot entry exists
+# Verify boot entry exists
 efibootmgr -v | grep -A1 "Arch (SecureBoot)"
+# Expected: Entry pointing to \EFI\arch\shimx64.efi
+```
 
-# Signatures present on kernel(s)
+### Bootloader and Signatures
+```bash
+# Check EFI files
+ls -la /boot/EFI/arch/
+# Expected: shimx64.efi, MokManager.efi, grubx64.efi
+
+# Verify kernel signatures
 sbverify --list /boot/vmlinuz-linux
 sbverify --list /boot/vmlinuz-linux-lts
+# Expected: Valid signature reports
+```
+
+### System Performance and Storage
+```bash
+# Check ZRAM status
+swapon --show
+zramctl
+# Expected: /dev/zram0 with ram/2 size, zstd compression
+
+# Verify Snapper configuration
+snapper -c root list-configs
+ls -la /.snapshots
+# Expected: Root config exists, snapshot directory accessible
+```
+
+### Filesystem Permissions
+```bash
+# Check boot directory permissions
+ls -ld /boot
+ls -l /boot/loader/random-seed
+# Expected: /boot = drwx------ (0700), random-seed = -rw------- (0600)
+
+# Verify automation hooks
+ls /etc/pacman.d/hooks/
+# Expected: 85-systemd-boot-sign.hook, 90-bootctl-update.hook, 95-secureboot-sign.hook
+```
+
+### MOK Keys
+```bash
+# Check MOK key presence
+ls -la /root/secureboot/
+# Expected: MOK.key, MOK.crt, MOK.cer
 ```
 
 ---
 
 ## ZRAM Configuration (Automated)
 
-ZRAM compressed swap is **automatically configured** by `post-install.sh` with optimal settings:
+ZRAM compressed swap is **automatically configured** by `post_install.sh` with optimal settings:
 
 - **Size**: Half of available RAM (`ram / 2`)
 - **Compression**: `zstd` (best compression ratio)
@@ -319,7 +390,7 @@ zramctl        # Should show size and compression info
 
 ## Snapper Configuration (Automated)
 
-Snapper Btrfs snapshot management is **automatically configured** by `post-install.sh`:
+Snapper Btrfs snapshot management is **automatically configured** by `post_install.sh`:
 
 - **Configuration**: Root filesystem snapshot management enabled
 - **Subvolume**: `@.snapshots` automatically mounted and configured
@@ -342,22 +413,22 @@ systemctl status snapper-cleanup.timer  # Should be active
 
 ---
 
-## Environment variables (knobs)
+## 📖 Reference: Environment Variables
 
-| Var         | Where           | Default            | Meaning                               |
-| ----------- | --------------- | ------------------ | ------------------------------------- |
-| `DISK`      | pre-install.sh  | `/dev/sda`         | Target disk (e.g. `/dev/nvme0n1`)     |
-| `HOSTNAME`  | pre-install.sh  | `archhost`         | System hostname                       |
-| `USERNAME`  | pre-install.sh  | `user`             | Primary user (wheel)                  |
-| `ROOT_PASS` | pre-install.sh  | `rootpass`         | Root password                         |
-| `USER_PASS` | pre-install.sh  | `userpass`         | User’s password                       |
-| `USER_NAME` | post-install.sh | auto-detects       | Which user builds AUR (`shim-signed`) |
-| `MOK_DIR`   | post-install.sh | `/root/secureboot` | Where keys live                       |
-| `ESP_MOUNT` | post-install.sh | `/boot`            | ESP mount point                       |
+| Variable | Default | Purpose | Valid Values | Notes |
+|----------|---------|---------|-------------|-------|
+| `DISK` | `/dev/sda` | Target disk | `/dev/sd*`, `/dev/nvme*` | SATA/NVMe device names |
+| `HOSTNAME` | `archhost` | System hostname | Valid hostname | FQDN or short name |
+| `USERNAME` | `user` | Primary user | Valid username | Added to wheel group |
+| `ROOT_PASS` | `rootpass` | Root password | Min 8 chars | Uppercase, lowercase, numbers required |
+| `USER_PASS` | `userpass` | User password | Min 8 chars | Uppercase, lowercase, numbers required |
+| `USER_NAME` | *auto-detect* | AUR build user | Existing username | For building `shim-signed` |
+| `MOK_DIR` | `/root/secureboot` | Key storage location | Directory path | RSA-2048 keys stored here |
+| `ESP_MOUNT` | `/boot` | EFI mount point | Directory path | Must be mountable |
 
 ---
 
-## Troubleshooting (Common Issues on Locked Machines)
+## 🛠️ Troubleshooting: Common Issues on Locked Machines
 
 * **"Secure Boot is enabled but I can't disable it"**
   This is exactly what these scripts are designed for! Proceed with the installation - our shim + MOK approach works with mandatory Secure Boot.
@@ -369,16 +440,16 @@ systemctl status snapper-cleanup.timer  # Should be active
   These scripts are perfect for your situation. They work around IT restrictions by creating a trusted boot chain that complies with Secure Boot policies.
 
 * **AUR build complains about running as root**
-  That's expected; the script builds as `USER_NAME` with `su - USER_NAME` and then installs as root. Make sure `USER_NAME` exists (created by pre-install) and you ran `post-install.sh` as **root**.
+  That's expected; the script builds as `USER_NAME` with `su - USER_NAME` and then installs as root. Make sure `USER_NAME` exists (created by pre-install) and you ran `post_install.sh` as **root**.
 
 * **Boot lands back at firmware menu**
-  Check `efibootmgr -v` for **"Arch (SecureBoot)"** entry. If missing, rerun `post-install.sh`. Also verify `\EFI\arch\shimx64.efi` and `\EFI\arch\grubx64.efi` exist on the ESP.
+  Check `efibootmgr -v` for **"Arch (SecureBoot)"** entry. If missing, rerun `post_install.sh`. Also verify `\EFI\arch\shimx64.efi` and `\EFI\arch\grubx64.efi` exist on the ESP.
 
 * **MokManager still asks to enroll hashes**
-  Ensure your MOK is **RSA-2048** (these scripts generate RSA), and that both **`systemd-bootx64.efi` → `grubx64.efi`** and **kernels** are signed. Re-run `post-install.sh` if unsure.
+  Ensure your MOK is **RSA-2048** (these scripts generate RSA), and that both **`systemd-bootx64.efi` → `grubx64.efi`** and **kernels** are signed. Re-run `post_install.sh` if unsure.
 
 * **`bootctl` warns about random-seed being world-readable**
-  `post-install.sh` tightens perms and updates `/etc/fstab` to mount the ESP with `umask=0077`. If you edited `/boot` manually, re-run `post-install.sh`.
+  `post_install.sh` tightens perms and updates `/etc/fstab` to mount the ESP with `umask=0077`. If you edited `/boot` manually, re-run `post_install.sh`.
 
 * **ZRAM not active after boot**
   Check `systemctl status zram-generator.service` and `swapon --show`. The automated setup should activate ZRAM immediately. If not, run `systemctl restart swap.target`.
@@ -439,38 +510,43 @@ After you finish installation (post-install, first reboot), run these commands t
 
 ---
 
-# Arch Linux – encrypted Btrfs maintenance / recovery cheat-sheet
+## 🔧 Advanced: Arch Linux – Encrypted Btrfs Maintenance & Recovery Cheat Sheet
 
-> Generic checklist for unlocking, mounting and chrooting into an Arch installation  
+> **Generic checklist for unlocking, mounting and chrooting into an Arch installation**
 > that lives inside a **LUKS** container with **Btrfs sub-volumes** and a separate **ESP**.
 
-Replace device names (`/dev/sdX*`) and sub-volume names with your own.
+⚠️ **Replace device names** (`/dev/sdX*`) and **sub-volume names** with your own configuration.
 
 ---
 
-## 1. Unlock the LUKS container
+#### 1. 🔓 Unlock the LUKS Container
 ```bash
-cryptsetup open /dev/sdX2 cryptroot   # choose any mapper name you like
+# Open encrypted container
+cryptsetup open /dev/sdX2 cryptroot
+# You'll be prompted for your LUKS passphrase
 ```
 
 ---
 
-## 2. Mount the root sub-volume
+#### 2. 🏔️ Mount Root Sub-volume
 ```bash
+# Mount main system with compression
 mount -o subvol=@,compress=zstd /dev/mapper/cryptroot /mnt
 ```
 
 ---
 
-## 3. Create missing mount-points
+#### 3. 📁 Create Mount Points
 ```bash
+# Create necessary directory structure
 mkdir -p /mnt/{boot,home,root,.snapshots,srv,var/log,var/cache/pacman/pkg}
 ```
 
 ---
 
-## 4. Mount remaining Btrfs sub-volumes
+#### 4. 🔗 Mount Btrfs Sub-volumes
 ```bash
+# Mount all subvolumes with optimal settings
 mount -o subvol=@home,compress=zstd       /dev/mapper/cryptroot /mnt/home
 mount -o subvol=@root,compress=zstd       /dev/mapper/cryptroot /mnt/root
 mount -o subvol=@.snapshots,compress=zstd /dev/mapper/cryptroot /mnt/.snapshots
@@ -481,32 +557,50 @@ mount -o subvol=@var_pkgs                 /dev/mapper/cryptroot /mnt/var/cache/p
 
 ---
 
-## 5. Mount the EFI System Partition
+#### 5. 💾 Mount EFI System Partition
 ```bash
+# Mount boot partition
 mount /dev/sdX1 /mnt/boot
 ```
 
 ---
 
-## 6. Enter the chroot environment
+#### 6. 🚪 Enter Chroot Environment
 ```bash
+# Prepare chroot environment
 mount -t proc /proc /mnt/proc
 mount --rbind /sys  /mnt/sys  && mount --make-rslave /mnt/sys
 mount --rbind /dev  /mnt/dev  && mount --make-rslave /mnt/dev
 mount --rbind /run  /mnt/run  && mount --make-rslave /mnt/run
 
+# Enter chroot
 arch-chroot /mnt
 ```
 
 ---
 
-## 7. Finished – perform maintenance
-- `pacman -Syu` / `mkinitcpio -P` / `grub-install` / `refind-install` / fix configs, etc.
-
-## 8. Clean exit
+#### 7. 🔧 System Maintenance Tasks
 ```bash
-exit                              # leave chroot
-umount -R /mnt                    # unmount everything
-cryptsetup close cryptroot        # close LUKS container
-reboot
+# Now in chroot, you can:
+pacman -Syu                    # Update system
+mkinitcpio -P                 # Regenerate initramfs
+systemctl status <service>   # Check services
+journalctl -xe               # View logs
+# ... perform other maintenance
+```
+
+#### 8. 🧹 Clean Exit
+```bash
+exit                              # Leave chroot
+umount -R /mnt                    # Unmount everything
+cryptsetup close cryptroot        # Close LUKS container
+reboot                            # Reboot system
+
+💡 **Pro Tip**: Use this recovery process for:
+- System repairs and debugging
+- Bootloader reinstallation
+- Kernel parameter changes
+- Filesystem maintenance
+- Password recovery
+- Configuration fixes
 
